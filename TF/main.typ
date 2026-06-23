@@ -32,6 +32,11 @@ Los datos provienen del Copernicus Marine Service (CMEMS), del producto `GLOBAL_
 
 Se emplean las dos componentes de la corriente marina: _uo_ (componente zonal, velocidad hacia el este) y _vo_ (componente meridional, velocidad hacia el norte), en m/s. El dominio es un recorte sobre el litoral de Lima y Callao, entre las latitudes 13.08° S y 11.42° S y las longitudes 78.42° O y 76.58° O. La malla tiene una resolución de 1/12° (≈ 0.083°, unos 9 km), discretizada en 21 niveles de latitud × 23 de longitud × 4 de profundidad (0.49, 1.54, 2.65 y 3.82 m, capas cercanas a la superficie). La dimensión temporal contiene 10 pasos diarios (cada 24 h), del 13 al 22 de mayo de 2026.
 
+#figure(
+  image("media/copernicus.png", width: 90%),
+  caption: [Portal Copernicus Marine Service mostrando el producto GLOBAL\_ANALYSISFORECAST\_PHY\_001\_024 y el recorte descargado para el litoral de Lima (mayo 2026).],
+) <fig-copernicus>
+
 == Motivo del Análisis
 
 Se eligió este conjunto porque las corrientes marinas son el factor físico que gobierna a la vez los dos aspectos centrales del problema. Por un lado, determinan el costo energético del desplazamiento del AUV: moverse a favor o en contra del flujo cambia drásticamente la energía requerida. Por otro, son el mecanismo que transporta y acumula los contaminantes, de modo que definen dónde tiene sentido muestrear.
@@ -138,6 +143,11 @@ La interfaz es una aplicación web desarrollada con Streamlit, accesible desde e
 
 Sobre el área principal también se muestran cuatro métricas numéricas (energía total, consumo de propulsión, energía regenerada y nivel mínimo de batería), una tabla desglosada por tramo, y un botón de exportación de la ruta en CSV. Las figuras se generan ejecutando `python -m src.visualizacion` desde la raíz del proyecto y se guardan en `outputs/figuras/`.
 
+#figure(
+  image("media/captura_app.png", width: 80%),
+  caption: [Captura de la interfaz web Streamlit: barra lateral con parámetros, métricas de la misión y pestaña de ruta 2D.],
+) <fig-app>
+
 = Validación de datos y pruebas
 
 == Entradas y salidas del sistema
@@ -155,6 +165,21 @@ Sobre el área principal también se muestran cuatro métricas numéricas (energ
 La energía total de la misión es la suma de los pesos de las aristas del camino óptimo. Los valores negativos en aristas individuales indican tramos de regeneración; el valor total puede ser positivo o negativo según el balance global propulsión-regeneración. El nivel mínimo de batería determina la viabilidad de la misión: si desciende a 0 J, el AUV se quedaría sin energía antes de regresar a la base. Se recomienda mantener ese mínimo por encima del 20 % de $E_"max"$ (zona segura marcada en rojo en el gráfico de batería).
 
 La detección de ciclos negativos funciona como control de consistencia del modelo: si $k_r dot eta >= k_p$, el AUV ganaría energía en recorridos circulares, lo que violaría la conservación de energía. En ese caso el sistema emite una advertencia y los resultados pueden no ser fiables.
+
+#figure(
+  image("media/demo_ruta.png", width: 90%),
+  caption: [Ruta óptima del AUV sobre el litoral de Lima: zonas de convergencia (C), centinelas offshore (S) y base del Callao; la trayectoria se colorea según la profundidad del segmento.],
+) <fig-ruta2d>
+
+#figure(
+  image("media/demo_3d.png", width: 90%),
+  caption: [Visualización 3D de la ruta por capas de profundidad: cada plano horizontal representa un nivel de profundidad coloreado por rapidez de corriente; la ruta del AUV se traza en rojo.],
+) <fig-ruta3d>
+
+#figure(
+  image("media/demo_bateria.png", width: 100%),
+  caption: [Estado de batería del AUV a lo largo de la misión: tramos de propulsión (naranja), regeneración (verde) y zona crítica por debajo del 20 % de $E_"max"$ (rojo).],
+) <fig-bateria>
 
 == Pruebas unitarias
 

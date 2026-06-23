@@ -507,5 +507,16 @@ if __name__ == "__main__":
     plt.savefig(out2, dpi=150, bbox_inches="tight")
     print(f"Guardado → {out2}")
 
+    # --- Figura de batería ---
+    from src.metricas import estado_bateria
+    bat = estado_bateria(ruta, grafo, params.e_max)
+    fig4, ax4 = plt.subplots(figsize=(12, 4))
+    plot_bateria(campo, ruta, bat["niveles"], params.e_max,
+                 waypoints=todos, orden=orden, ax=ax4)
+    plt.tight_layout()
+    out3 = pathlib.Path(__file__).parent.parent / "outputs" / "figuras" / "demo_bateria.png"
+    plt.savefig(out3, dpi=150, bbox_inches="tight")
+    print(f"Guardado → {out3}")
+
     plt.show()
     print("\n✓ visualizacion.py OK")
