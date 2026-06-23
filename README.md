@@ -14,6 +14,8 @@ modelo se calculan las rutas de mínimo consumo con **Bellman-Ford** y el orden
 
 ![Interfaz del planificador](informe/media/captura_app.png)
 
+https://auv-rutas.streamlit.app/
+
 ---
 
 ## ¿Cómo funciona?
