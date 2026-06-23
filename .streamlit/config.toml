@@ -1,10 +1,23 @@
 # Tema visual del Planificador AUV.
-# Paleta marina sobria: teal profundo de acento sobre fondos fríos y claros.
-# Centraliza la identidad visual; la app no necesita colores propios.
+# Paleta marina coherente con soporte de modo claro y oscuro conmutable.
+# El usuario alterna desde el menú ☰ → Settings → Theme (o sigue el del sistema).
+# Requiere Streamlit >= 1.45 para las tablas [theme.light] / [theme.dark].
 
 [theme]
-primaryColor = "#1B6B7C"            # teal marino — acento de botones y controles
-backgroundColor = "#FBFCFD"         # fondo principal, blanco frío
-secondaryBackgroundColor = "#EEF3F5"  # barra lateral y contenedores
-textColor = "#16242B"               # pizarra profunda, alto contraste
+base = "light"            # tema por defecto si no se elige otro
+primaryColor = "#1B6B7C"  # teal marino — acento de botones y controles
 font = "sans serif"
+baseRadius = "0.5rem"     # esquinas redondeadas uniformes en toda la app
+
+# --- Modo claro: blancos fríos sobre pizarra ---
+[theme.light]
+backgroundColor = "#FBFCFD"
+secondaryBackgroundColor = "#EEF3F5"
+textColor = "#16242B"
+
+# --- Modo oscuro: azul-petróleo profundo, teal luminoso de acento ---
+[theme.dark]
+primaryColor = "#3FA7BD"
+backgroundColor = "#0E1B21"
+secondaryBackgroundColor = "#17282F"
+textColor = "#E6EDF0"

@@ -2,5 +2,5 @@ numpy
 xarray
 netCDF4
 matplotlib
-streamlit
+streamlit>=1.45
 pytest

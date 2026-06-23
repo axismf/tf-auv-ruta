@@ -85,75 +85,44 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 _ESTILOS = """
 <style>
-:root {
-    --marino: #1B6B7C;
-    --marino-oscuro: #134E5B;
-    --marino-claro: #E3EEF1;
-    --pizarra: #16242B;
-}
-
-/* Botones unificados: misma familia visual para acción y descargas */
+/* Botones: forma, peso y espaciado consistentes.
+   El COLOR lo aporta el tema (config.toml), por lo que se adapta solo
+   al modo claro u oscuro sin sobrescribirlo aquí. */
 .stButton > button,
 .stDownloadButton > button {
     border-radius: 8px;
     font-weight: 600;
     letter-spacing: 0.2px;
     padding: 0.55rem 1.1rem;
-    transition: all 0.15s ease-in-out;
+    transition: filter 0.15s ease-in-out, transform 0.15s ease-in-out;
 }
-
-/* Botón primario (acción principal) */
-.stButton > button[kind="primary"] {
-    background: var(--marino);
-    border: 1px solid var(--marino);
-    color: #fff;
-    box-shadow: 0 1px 2px rgba(19, 78, 91, 0.25);
-}
-.stButton > button[kind="primary"]:hover {
-    background: var(--marino-oscuro);
-    border-color: var(--marino-oscuro);
-}
-
-/* Botones de descarga: variante secundaria, mismo idioma cromático */
-.stDownloadButton > button {
-    background: transparent;
-    border: 1px solid var(--marino);
-    color: var(--marino);
-}
+.stButton > button:hover,
 .stDownloadButton > button:hover {
-    background: var(--marino-claro);
-    color: var(--marino-oscuro);
-    border-color: var(--marino-oscuro);
+    filter: brightness(0.96);
+    transform: translateY(-1px);
 }
 
-/* Hero del encabezado */
+/* Hero del encabezado — hereda el color de texto del tema activo */
 .auv-hero {
-    border-left: 4px solid var(--marino);
+    border-left: 4px solid #2E8B9E;  /* teal intermedio, legible en ambos modos */
     padding: 0.2rem 0 0.2rem 1rem;
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.6rem;
 }
 .auv-hero h1 {
     font-size: 1.9rem;
     font-weight: 700;
-    color: var(--pizarra);
     margin: 0;
     line-height: 1.2;
 }
 .auv-hero .sub {
-    color: #5a6b72;
     font-size: 0.95rem;
     margin-top: 0.35rem;
     max-width: 62ch;
-}
-
-/* Pestañas con acento marino */
-.stTabs [aria-selected="true"] {
-    color: var(--marino) !important;
+    opacity: 0.72;  /* matiza el color de texto heredado, sin fijarlo */
 }
 
 /* Encabezados de la barra lateral con jerarquía sutil */
 section[data-testid="stSidebar"] h2 {
-    color: var(--marino);
     font-size: 1.0rem;
     text-transform: uppercase;
     letter-spacing: 0.6px;
