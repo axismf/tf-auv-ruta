@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+outputs/figuras/*
+outputs/rutas/*
+!outputs/figuras/.gitkeep
+!outputs/rutas/.gitkeep
+.ipynb_checkpoints/
