@@ -10,3 +10,5 @@ outputs/rutas/*
 .typst/
 TF/upc.typ
 TF/refs.bib
+.idea/
+target/

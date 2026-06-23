@@ -220,7 +220,7 @@ if __name__ == "__main__":
     print(f"\n  Verificación nodo a nodo:   {e_total:.1f} J")
 
     # --- CSV ---
-    out_csv = pathlib.Path(__file__).parent.parent / "outputs" / "ruta.csv"
+    out_csv = pathlib.Path(__file__).parent.parent / "outputs" / "rutas" / "ruta.csv"
     out_csv.parent.mkdir(exist_ok=True)
     exportar_csv(ruta, campo, str(out_csv))
     print(f"\n  CSV exportado → {out_csv}")
