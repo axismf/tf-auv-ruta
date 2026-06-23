@@ -9,12 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# TODO: borrar desde aquí hasta el final del archivo (bloque de prueba temporal)
 if __package__ is None or __package__ == "":
     import pathlib, sys
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     __package__ = "src"
-# TODO: fin bloque fix __package__
 
 import numpy as np
 import xarray as xr
@@ -176,7 +174,6 @@ def resumen(campo: CampoCorrientes) -> str:
     )
 
 
-# TODO: borrar este bloque cuando termines de probar datos.py
 if __name__ == "__main__":
     import pathlib
     nc = pathlib.Path(__file__).parent.parent / "data" / "lima3.nc"
@@ -184,4 +181,3 @@ if __name__ == "__main__":
     campo = cargar_corrientes(str(nc))
     print(resumen(campo))
     print("\n✓ datos.py OK")
-# TODO: fin bloque de prueba

@@ -123,20 +123,98 @@ Finalmente, el propio campo de corrientes define los puntos de interés de la mi
   )
 ]
 
-*Diseño de Interfaz de usuario:* \
-_[Incluir capturas o wireframes de la UI aquí]_
+*Diseño de Interfaz de usuario:*
+
+La interfaz es una aplicación web desarrollada con Streamlit, accesible desde el navegador con el comando `streamlit run app.py`. Se organiza en dos zonas:
+
+*Barra lateral (parámetros y dataset).* El usuario configura el modelo mediante controles interactivos: velocidad de crucero $s$ [m/s], eficiencia de regeneración $eta$, coeficientes $k_p$ y $k_r$, número de zonas de convergencia $k_c$, número de centinelas offshore $k_s$, separación mínima entre waypoints [celdas], capacidad máxima de batería $E_"max"$ [J] y porcentaje de carga inicial. El dataset se carga subiendo un archivo NetCDF o usando el archivo incluido por defecto (`lima3.nc`).
+
+*Área principal.* Al presionar el botón _Calcular ruta óptima_, el sistema ejecuta el pipeline completo y presenta los resultados en cuatro pestañas:
+
+- *Zonas y divergencia:* mapa del campo de divergencia sobre el dominio de Lima, con las zonas de convergencia (C1…$k_c$), los centinelas offshore (S1…$k_s$) y la base del Callao señalados.
+- *Ruta 2D:* ruta completa del AUV proyectada en lat-lon y coloreada según la profundidad de cada segmento.
+- *Ruta 3D por capas:* los cuatro niveles de profundidad se apilan como planos horizontales coloreados por rapidez de corriente; la ruta se traza en rojo entre ellos.
+- *Batería:* evolución de la carga a lo largo de la misión (eje X: distancia recorrida [km]), con sombreado de tramos de propulsión (naranja) y regeneración (verde), y banda roja de peligro por debajo del 20 % de $E_"max"$.
+
+Sobre el área principal también se muestran cuatro métricas numéricas (energía total, consumo de propulsión, energía regenerada y nivel mínimo de batería), una tabla desglosada por tramo, y un botón de exportación de la ruta en CSV. Las figuras se generan ejecutando `python -m src.visualizacion` desde la raíz del proyecto y se guardan en `outputs/figuras/`.
 
 = Validación de datos y pruebas
 
-_[Describir las entradas y salidas, interpretación de resultados y pruebas.]_
+== Entradas y salidas del sistema
+
+*Entradas:* un archivo NetCDF de Copernicus Marine con las variables _uo_ y _vo_ sobre una malla de latitud × longitud × profundidad, y los parámetros del modelo: $s$, $eta$, $k_p$, $k_r$, $k_c$, $k_s$, $E_"max"$ y separación mínima entre waypoints.
+
+*Salidas:*
+- Ruta óptima como secuencia de nodos `(prof_idx, lat_idx, lon_idx)`.
+- Métricas de la misión: energía total [J], energía de propulsión, energía regenerada y nivel mínimo de batería.
+- Archivo CSV exportable con columnas `paso`, `prof_m`, `lat_deg`, `lon_deg`.
+- Cuatro visualizaciones descargables (zonas y divergencia, ruta 2D, ruta 3D por capas, estado de batería).
+
+== Interpretación de resultados
+
+La energía total de la misión es la suma de los pesos de las aristas del camino óptimo. Los valores negativos en aristas individuales indican tramos de regeneración; el valor total puede ser positivo o negativo según el balance global propulsión-regeneración. El nivel mínimo de batería determina la viabilidad de la misión: si desciende a 0 J, el AUV se quedaría sin energía antes de regresar a la base. Se recomienda mantener ese mínimo por encima del 20 % de $E_"max"$ (zona segura marcada en rojo en el gráfico de batería).
+
+La detección de ciclos negativos funciona como control de consistencia del modelo: si $k_r dot eta >= k_p$, el AUV ganaría energía en recorridos circulares, lo que violaría la conservación de energía. En ese caso el sistema emite una advertencia y los resultados pueden no ser fiables.
+
+== Pruebas unitarias
+
+Las pruebas del módulo `src/algoritmos.py` están en `tests/test_algoritmos.py` y se ejecutan con `pytest` desde la raíz del proyecto:
+
+- *`test_bellman_ford_camino_simple`:* en un grafo lineal A→B→C con pesos 3 y 5, verifica que la distancia calculada a C es 8, y que los predecesores son correctos.
+- *`test_bellman_ford_prefiere_arista_negativa`:* con dos caminos alternativos hacia el mismo destino —uno directo de costo 10 y otro con arista de regeneración de costo neto 2— verifica que Bellman-Ford elige el camino de menor energía.
+- *`test_detecta_ciclo_negativo`:* construye un ciclo A→B→C→A con peso total $-2$ J y verifica que `hay_ciclo_negativo` lo detecta correctamente.
+- *`test_atsp_orden_optimo_caso_pequeno`:* para una matriz de costos 3×3 con solución óptima conocida (orden \[0, 1, 2, 0\], costo 3 J), verifica que `atsp_fuerza_bruta` devuelve exactamente ese resultado.
 
 = Conclusiones
 
-_[Redactar las conclusiones del experimento (mínimo tres) con la(s) técnica(s) usada(s) y mencionar los trabajos/tareas que se podrían investigar aún más.]_
++ *Bellman-Ford es la elección correcta cuando existen aristas de peso negativo.* La posibilidad de regeneración de batería introduce tramos de costo negativo en el grafo, lo que descarta a Dijkstra (no garantiza corrección en esas condiciones). Además del cálculo de rutas mínimas, Bellman-Ford proporciona de forma natural la detección de ciclos negativos en una pasada adicional de relajación. Esto actúa como mecanismo de validación del modelo: un ciclo de energía neta negativa revela una calibración defectuosa de los parámetros ($k_r dot eta >= k_p$) que haría que el AUV "ganase" energía dando vueltas, violando la conservación de energía. La terminación anticipada (detener en cuanto no se relaja ninguna arista) reduce el número de iteraciones de forma significativa sobre mallas regulares, logrando convergencia en decenas de pasadas en lugar de $V-1$.
+
++ *La factorización en dos capas hace tratable un problema de otra manera intratable.* Intentar resolver el reconocimiento completo como un TSP sobre los 1 568 nodos del grafo sería inviable por enumeración. La estrategia jerárquica reduce primero el espacio a una matriz de costos entre los $k$ waypoints ejecutando Bellman-Ford $k$ veces (en tiempo polinomial $O(k dot V dot E)$), y luego resuelve un ATSP de tamaño $k$ por fuerza bruta en $O((k-1)!)$. Manteniendo $k leq 9$ —lo que produce como mucho 40 320 órdenes a evaluar— se obtiene la solución exacta en segundos, sin sacrificar optimalidad.
+
++ *Las corrientes marinas son un factor dominante en el balance energético, no una perturbación menor.* Con velocidades de hasta 0.63 m/s en el dominio de Lima y una velocidad de crucero del AUV de 0.5 m/s, la corriente puede superar la velocidad del vehículo y cambiar el régimen de propulsión a regeneración. El mismo tramo geográfico puede tener costos radicalmente distintos según la dirección recorrida, lo que hace que el grafo sea asimétrico: $w(A -> B) != w(B -> A)$. Planificar la ruta por distancia mínima en lugar de energía mínima llevaría a rutas subóptimas o, en casos extremos, inviables por agotamiento de batería.
+
++ *Líneas de trabajo futuro.* Varias extensiones naturales se abren a partir de este trabajo: (a) reemplazar la enumeración exacta del ATSP por heurísticas eficientes (2-opt, Lin-Kernighan) para escalar a valores de $k$ mayores sin sacrificar calidad de solución; (b) incorporar la dimensión temporal del dataset —el producto CMEMS incluye múltiples pasos diarios— para optimizar la hora de inicio y el orden de visita considerando corrientes variables a lo largo de la misión; (c) modelar restricciones adicionales como tiempos de permanencia en cada waypoint para muestreo, recargas en superficie mediante paneles solares, o zonas de paso prohibido.
 
 = Anexos
 
-_[Coloca aquí tus anexos, tablas extra o imágenes de gran tamaño]_
+== Estructura del proyecto
+
+#align(center)[
+  #table(
+    columns: (32%, 68%),
+    align: (left, left),
+    [*Archivo / directorio*], [*Descripción*],
+    [`data/lima3.nc`], [Dataset NetCDF de Copernicus Marine (producto GLOBAL\_ANALYSISFORECAST\_PHY\_001\_024), recorte litoral Lima–Callao, mayo 2026.],
+    [`src/datos.py`], [Carga y preprocesamiento del NetCDF; estructura `CampoCorrientes` (RF-01).],
+    [`src/config.py`], [Parámetros inmutables del modelo (`ParametrosModelo`).],
+    [`src/grafo.py`], [Clase `Grafo` y función de costo de aristas por régimen (RF-02, RF-03).],
+    [`src/zonas.py`], [Cálculo de divergencia y selección de waypoints y centinelas (RF-03).],
+    [`src/algoritmos.py`], [Bellman-Ford, detección de ciclos negativos y ATSP por fuerza bruta (RF-04, RF-05).],
+    [`src/metricas.py`], [Resumen de misión, simulación de batería y exportación CSV (RF-08, RF-09).],
+    [`src/visualizacion.py`], [Visualizaciones matplotlib: zonas, ruta 2D/3D, batería (RF-07).],
+    [`app.py`], [Interfaz web Streamlit; orquesta los módulos anteriores (RF-06 a RF-09).],
+    [`tests/test_algoritmos.py`], [Pruebas unitarias de Bellman-Ford y ATSP (ejecutar con `pytest`).],
+    [`outputs/figuras/`], [Figuras generadas al ejecutar `python -m src.visualizacion`.],
+    [`outputs/rutas/`], [Archivos CSV de rutas exportadas desde la interfaz.],
+  )
+]
+
+== Parámetros por defecto del modelo
+
+#align(center)[
+  #table(
+    columns: (18%, 22%, 60%),
+    align: (center, center, left),
+    [*Parámetro*], [*Valor por defecto*], [*Descripción*],
+    [$s$], [0.5 m/s], [Velocidad de crucero del AUV respecto al agua.],
+    [$k_p$], [1.0], [Coeficiente de costo en régimen de propulsión.],
+    [$k_r$], [1.0], [Coeficiente de recuperación en régimen de regeneración.],
+    [$eta$], [0.30], [Eficiencia de conversión de la regeneración.],
+    [$E_"max"$], [1 000 000 J], [Capacidad máxima de la batería.],
+    [$k_c$], [6], [Número de zonas de convergencia a visitar.],
+    [$k_s$], [2], [Número de centinelas offshore.],
+  )
+]
 
 #pagebreak()
 

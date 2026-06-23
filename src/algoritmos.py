@@ -6,12 +6,10 @@ Viajante Asimétrico (ATSP) por enumeración exacta (fuerza bruta).
 """
 from __future__ import annotations
 
-# TODO: borrar este bloque cuando termines de probar algoritmos.py
 if __package__ is None or __package__ == "":
     import pathlib, sys
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     __package__ = "src"
-# TODO: fin bloque fix __package__
 
 import itertools
 import math
@@ -212,7 +210,6 @@ def ensamblar_ruta(
     return ruta
 
 
-# TODO: borrar este bloque cuando termines de probar algoritmos.py
 if __name__ == "__main__":
     import pathlib
     from src.datos import cargar_corrientes, resumen
@@ -272,4 +269,3 @@ if __name__ == "__main__":
     print(f"Nodos en la ruta completa: {len(ruta)}")
 
     print("\n✓ algoritmos.py OK")
-# TODO: fin bloque de prueba

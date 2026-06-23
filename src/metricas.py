@@ -1,12 +1,10 @@
 """Cálculo y exportación de métricas de la misión (RF-08, RF-09)."""
 from __future__ import annotations
 
-# TODO: borrar este bloque cuando termines de probar metricas.py
 if __package__ is None or __package__ == "":
     import pathlib, sys
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     __package__ = "src"
-# TODO: fin bloque fix __package__
 
 import csv
 import math
@@ -171,7 +169,6 @@ def exportar_csv(
             ])
 
 
-# TODO: borrar este bloque cuando termines de probar metricas.py
 if __name__ == "__main__":
     import pathlib
     from src.datos import cargar_corrientes
@@ -229,4 +226,3 @@ if __name__ == "__main__":
     print(f"\n  CSV exportado → {out_csv}")
 
     print("\n✓ metricas.py OK")
-# TODO: fin bloque de prueba

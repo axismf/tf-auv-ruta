@@ -1,5 +1,5 @@
 """Visualizaciones del dominio para depuración y para el informe (RF-07).
-bie
+
 Estos plots de matplotlib se usan durante el desarrollo para verificar cada
 etapa (¿los waypoints caen donde deben?, ¿la ruta evita la tierra?) y, ya
 pulidos, como figuras del informe. La capa Streamlit (app.py) reutiliza estas
@@ -7,12 +7,10 @@ mismas funciones, de modo que la visualización no depende de la UI.
 """
 from __future__ import annotations
 
-# TODO: borrar este bloque cuando termines de probar visualizacion.py
 if __package__ is None or __package__ == "":
     import pathlib, sys
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     __package__ = "src"
-# TODO: fin bloque fix __package__
 
 import math
 
@@ -453,7 +451,6 @@ def plot_bateria(
     return ax
 
 
-# TODO: borrar este bloque cuando termines de probar visualizacion.py
 if __name__ == "__main__":
     import pathlib
     from src.datos import cargar_corrientes
@@ -500,16 +497,15 @@ if __name__ == "__main__":
     plot_ruta(campo, ruta, waypoints=wps, centinelas=cent, base=base, ax=axes[1])
 
     plt.tight_layout()
-    out1 = pathlib.Path(__file__).parent.parent / "TF" / "demo_ruta.png"
+    out1 = pathlib.Path(__file__).parent.parent / "outputs" / "figuras" / "demo_ruta.png"
     plt.savefig(out1, dpi=150, bbox_inches="tight")
     print(f"Guardado → {out1}")
 
     # --- Figura 3D ---
     plot_3d(campo, ruta, waypoints=wps, centinelas=cent, base=base)
-    out2 = pathlib.Path(__file__).parent.parent / "TF" / "demo_3d.png"
+    out2 = pathlib.Path(__file__).parent.parent / "outputs" / "figuras" / "demo_3d.png"
     plt.savefig(out2, dpi=150, bbox_inches="tight")
     print(f"Guardado → {out2}")
 
     plt.show()
     print("\n✓ visualizacion.py OK")
-# TODO: fin bloque de prueba

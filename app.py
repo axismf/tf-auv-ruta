@@ -27,7 +27,13 @@ from src.zonas import (
     celda_mas_cercana,
     agregar_puntos_fijos,
 )
-from src.algoritmos import matriz_costos, atsp_fuerza_bruta, ensamblar_ruta
+from src.algoritmos import (
+    matriz_costos,
+    atsp_fuerza_bruta,
+    ensamblar_ruta,
+    bellman_ford,
+    hay_ciclo_negativo,
+)
 from src.metricas import resumen_mision, energia_total, estado_bateria, exportar_csv
 from src.visualizacion import plot_zonas, plot_ruta, plot_3d, plot_bateria
 
@@ -78,6 +84,15 @@ eta = st.sidebar.slider(
     "Eficiencia de regeneración η", 0.05, 0.95, 0.30, 0.05,
     help="Fracción de energía recuperada en régimen de regeneración.",
 )
+k_p = st.sidebar.slider(
+    "Coeficiente de propulsión kp", 0.1, 5.0, 1.0, 0.1,
+    help="Escala el costo energético en régimen de propulsión.",
+)
+k_r = st.sidebar.slider(
+    "Coeficiente de regeneración kr", 0.1, 5.0, 1.0, 0.1,
+    help="Escala la energía recuperada en régimen de regeneración. "
+         "Para evitar ciclos negativos, kr·η no debe superar kp.",
+)
 k_zonas = st.sidebar.slider(
     "Zonas de convergencia (kc)", 2, 8, 6,
     help="Número de zonas de acumulación a visitar.",
@@ -103,7 +118,7 @@ pct_inicial = st.sidebar.slider(
 )
 bateria_inicial_j = float(e_max) * pct_inicial / 100
 
-params = ParametrosModelo(s=s, eta=eta, k_zonas=k_zonas, e_max=float(e_max))
+params = ParametrosModelo(s=s, eta=eta, k_p=k_p, k_r=k_r, k_zonas=k_zonas, e_max=float(e_max))
 
 # ---------------------------------------------------------------------------
 # Carga del dataset (RF-01)
@@ -174,16 +189,31 @@ st.info(
 )
 
 @st.cache_resource(show_spinner="Construyendo grafo…")
-def _construir_grafo(campo, s, eta, e_max_val, k_zonas_val):
-    p = ParametrosModelo(s=s, eta=eta, k_zonas=k_zonas_val, e_max=e_max_val)
+def _construir_grafo(campo, s, eta, k_p_val, k_r_val, e_max_val, k_zonas_val):
+    p = ParametrosModelo(s=s, eta=eta, k_p=k_p_val, k_r=k_r_val,
+                         k_zonas=k_zonas_val, e_max=e_max_val)
     return construir_grafo(campo, p)
 
 @st.cache_data(show_spinner="Calculando rutas con Bellman-Ford…")
 def _matriz(_grafo_id, waypoints_tuple):
     return matriz_costos(grafo, list(waypoints_tuple))
 
-grafo = _construir_grafo(campo, s, eta, float(e_max), k_zonas)
+grafo = _construir_grafo(campo, s, eta, k_p, k_r, float(e_max), k_zonas)
 st.caption(f"Grafo: {grafo.num_nodos} nodos · {grafo.num_aristas} aristas")
+
+# Validación del modelo: detección de ciclos negativos (RF-08, RNF-07).
+with st.spinner("Verificando ausencia de ciclos negativos…"):
+    _dist_val, _ = bellman_ford(grafo, base_nodo)
+    _hay_ciclo = hay_ciclo_negativo(grafo, _dist_val)
+if _hay_ciclo:
+    st.warning(
+        "⚠️ Se detectó un ciclo de energía negativa en el grafo. Indica una "
+        "mala calibración de los parámetros: la regeneración (kr·η) supera al "
+        "costo de propulsión (kp), de modo que el AUV ganaría energía dando "
+        "vueltas. Los resultados podrían no ser fiables; reducí η o kr."
+    )
+else:
+    st.caption("✓ Sin ciclos negativos — modelo bien calibrado.")
 
 M, caminos = _matriz(id(grafo), tuple(todos))
 

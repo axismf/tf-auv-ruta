@@ -7,12 +7,10 @@ complementan con centinelas offshore para detección temprana de derrames.
 """
 from __future__ import annotations
 
-# TODO: borrar este bloque cuando termines de probar zonas.py
 if __package__ is None or __package__ == "":
     import pathlib, sys
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     __package__ = "src"
-# TODO: fin bloque fix __package__
 
 import math
 import numpy as np
@@ -215,7 +213,6 @@ def agregar_puntos_fijos(
     return todos, base
 
 
-# TODO: borrar este bloque cuando termines de probar zonas.py
 if __name__ == "__main__":
     import pathlib
     from src.datos import cargar_corrientes, resumen
@@ -264,4 +261,3 @@ if __name__ == "__main__":
     print(f"Órdenes ATSP a evaluar:   {math.factorial(len(todos) - 1)}")
 
     print("\n✓ zonas.py OK")
-# TODO: fin bloque de prueba
