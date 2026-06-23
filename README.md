@@ -13,7 +13,7 @@ modelo se calculan las rutas de mínimo consumo con **Bellman-Ford** y el orden
 óptimo de visita con un **ATSP por enumeración exacta**.
 
 ![Interfaz del planificador](informe/media/captura_app.png)
-
+a
 ---
 
 ## ¿Cómo funciona?
