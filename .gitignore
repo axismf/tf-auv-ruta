@@ -7,3 +7,6 @@ outputs/rutas/*
 !outputs/figuras/.gitkeep
 !outputs/rutas/.gitkeep
 .ipynb_checkpoints/
+.typst/
+TF/upc.typ
+TF/refs.bib
