@@ -59,22 +59,22 @@ def _fig_a_bytes(fig: plt.Figure) -> bytes:
 # Layout
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Planificador de rutas AUV — Lima",
-    page_icon="🤿",
+    page_title="Planificador AUV — Lima",
+    page_icon="🌊",
     layout="wide",
 )
 
-st.title("🤿 Planificador de rutas de mínima energía para AUV")
+st.title("Planificador de rutas AUV — Lima")
 st.caption(
-    "Modela el litoral de Lima como un grafo dirigido y calcula la ruta de "
-    "reconocimiento de menor consumo energético, considerando zonas de "
-    "convergencia de contaminantes y centinelas offshore."
+    "Grafo dirigido sobre el litoral de Lima para la planificación de misiones "
+    "de reconocimiento con mínimo consumo energético. "
+    "Incorpora zonas de convergencia de contaminantes y puntos centinela offshore."
 )
 
 # ---------------------------------------------------------------------------
 # Barra lateral — parámetros del modelo (RF-06)
 # ---------------------------------------------------------------------------
-st.sidebar.header("Parámetros del modelo")
+st.sidebar.header("Modelo energético")
 
 s = st.sidebar.slider(
     "Velocidad de crucero [m/s]", 0.1, 1.5, 0.5, 0.05,
@@ -82,31 +82,31 @@ s = st.sidebar.slider(
 )
 eta = st.sidebar.slider(
     "Eficiencia de regeneración η", 0.05, 0.95, 0.30, 0.05,
-    help="Fracción de energía recuperada en régimen de regeneración.",
+    help="Fracción de energía recuperada en modo regeneración.",
 )
 k_p = st.sidebar.slider(
     "Coeficiente de propulsión kp", 0.1, 5.0, 1.0, 0.1,
-    help="Escala el costo energético en régimen de propulsión.",
+    help="Escala el coste energético en modo propulsión.",
 )
 k_r = st.sidebar.slider(
     "Coeficiente de regeneración kr", 0.1, 5.0, 1.0, 0.1,
-    help="Escala la energía recuperada en régimen de regeneración. "
+    help="Escala la energía recuperada en modo regeneración. "
          "Para evitar ciclos negativos, kr·η no debe superar kp.",
 )
 k_zonas = st.sidebar.slider(
-    "Zonas de convergencia (kc)", 2, 8, 6,
-    help="Número de zonas de acumulación a visitar.",
+    "Zonas de convergencia", 2, 8, 6,
+    help="Número de zonas de acumulación de contaminantes a visitar.",
 )
 k_centinelas = st.sidebar.slider(
-    "Centinelas offshore (ks)", 1, 4, 2,
+    "Centinelas offshore", 1, 4, 2,
     help="Puntos de detección temprana en la franja oceánica abierta.",
 )
 dist_min = st.sidebar.slider(
     "Separación mínima entre waypoints [celdas]", 1, 6, 3,
-    help="Evita seleccionar celdas contiguas de la misma zona.",
+    help="Distancia mínima para evitar seleccionar celdas de la misma zona.",
 )
 
-st.sidebar.header("Batería del AUV")
+st.sidebar.header("Batería")
 e_max = st.sidebar.number_input(
     "Capacidad máxima [J]", min_value=1_000, max_value=10_000_000,
     value=1_000_000, step=50_000,
@@ -125,7 +125,7 @@ params = ParametrosModelo(s=s, eta=eta, k_p=k_p, k_r=k_r, k_zonas=k_zonas, e_max
 # ---------------------------------------------------------------------------
 st.sidebar.header("Dataset")
 archivo = st.sidebar.file_uploader(
-    "Archivo NetCDF de Copernicus Marine (.nc)",
+    "NetCDF de Copernicus Marine (.nc)",
     type=["nc"],
     help="Producto GLOBAL_ANALYSISFORECAST_PHY_001_024 con variables uo y vo.",
 )
