@@ -55,6 +55,22 @@ def _fig_a_bytes(fig: plt.Figure) -> bytes:
     return buf.read()
 
 
+def _mostrar_figura(fig: plt.Figure, modo: str = "medio") -> None:
+    """Renderiza una figura centrada y con ancho contenido.
+
+    Evita que las gráficas ocupen todo el ancho de la página (layout wide),
+    dándoles un tamaño más sobrio. No altera la figura, solo su contenedor.
+    """
+    ratios = {
+        "compacto": (1, 2, 1),    # ~50 % del ancho útil
+        "medio": (1, 3, 1),       # ~60 %
+        "panoramico": (1, 8, 1),  # ~80 %, para la gráfica ancha de batería
+    }.get(modo, (1, 3, 1))
+    _izq, centro, _der = st.columns(ratios)
+    with centro:
+        st.pyplot(fig)
+
+
 # ---------------------------------------------------------------------------
 # Layout
 # ---------------------------------------------------------------------------
@@ -64,11 +80,101 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("Planificador de rutas AUV — Lima")
-st.caption(
-    "Grafo dirigido sobre el litoral de Lima para la planificación de misiones "
-    "de reconocimiento con mínimo consumo energético. "
-    "Incorpora zonas de convergencia de contaminantes y puntos centinela offshore."
+# ---------------------------------------------------------------------------
+# Estilo — identidad visual coherente (complementa .streamlit/config.toml)
+# ---------------------------------------------------------------------------
+_ESTILOS = """
+<style>
+:root {
+    --marino: #1B6B7C;
+    --marino-oscuro: #134E5B;
+    --marino-claro: #E3EEF1;
+    --pizarra: #16242B;
+}
+
+/* Botones unificados: misma familia visual para acción y descargas */
+.stButton > button,
+.stDownloadButton > button {
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    padding: 0.55rem 1.1rem;
+    transition: all 0.15s ease-in-out;
+}
+
+/* Botón primario (acción principal) */
+.stButton > button[kind="primary"] {
+    background: var(--marino);
+    border: 1px solid var(--marino);
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(19, 78, 91, 0.25);
+}
+.stButton > button[kind="primary"]:hover {
+    background: var(--marino-oscuro);
+    border-color: var(--marino-oscuro);
+}
+
+/* Botones de descarga: variante secundaria, mismo idioma cromático */
+.stDownloadButton > button {
+    background: transparent;
+    border: 1px solid var(--marino);
+    color: var(--marino);
+}
+.stDownloadButton > button:hover {
+    background: var(--marino-claro);
+    color: var(--marino-oscuro);
+    border-color: var(--marino-oscuro);
+}
+
+/* Hero del encabezado */
+.auv-hero {
+    border-left: 4px solid var(--marino);
+    padding: 0.2rem 0 0.2rem 1rem;
+    margin-bottom: 0.4rem;
+}
+.auv-hero h1 {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--pizarra);
+    margin: 0;
+    line-height: 1.2;
+}
+.auv-hero .sub {
+    color: #5a6b72;
+    font-size: 0.95rem;
+    margin-top: 0.35rem;
+    max-width: 62ch;
+}
+
+/* Pestañas con acento marino */
+.stTabs [aria-selected="true"] {
+    color: var(--marino) !important;
+}
+
+/* Encabezados de la barra lateral con jerarquía sutil */
+section[data-testid="stSidebar"] h2 {
+    color: var(--marino);
+    font-size: 1.0rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+</style>
+"""
+st.markdown(_ESTILOS, unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <div class="auv-hero">
+        <h1>🌊 Planificador de rutas AUV · Lima</h1>
+        <div class="sub">
+            Grafo dirigido sobre el litoral de Lima para planificar misiones de
+            reconocimiento con mínimo consumo energético, aprovechando las
+            corrientes marinas. Integra zonas de convergencia de contaminantes
+            y puntos centinela offshore.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -156,7 +262,7 @@ with st.expander("Resumen del dataset", expanded=False):
 # ---------------------------------------------------------------------------
 # Botón de cálculo
 # ---------------------------------------------------------------------------
-if not st.button("🚀 Calcular ruta óptima", type="primary"):
+if not st.button("Calcular ruta óptima", type="primary"):
     st.info("Configurá los parámetros en la barra lateral y presioná **Calcular ruta óptima**.")
     st.stop()
 
@@ -260,29 +366,33 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     fig1, ax1 = plt.subplots(figsize=(8, 7))
     plot_zonas(campo, div, wps, centinelas=cent, base=base, capa=capa, ax=ax1)
-    st.pyplot(fig1)
-    st.download_button("💾 Descargar", _fig_a_bytes(fig1), "zonas.png", "image/png")
+    _mostrar_figura(fig1, "medio")
+    st.download_button("Descargar PNG", _fig_a_bytes(fig1), "zonas.png",
+                       "image/png", key="dl_zonas")
     plt.close(fig1)
 
 with tab2:
     fig2, ax2 = plt.subplots(figsize=(9, 7))
     plot_ruta(campo, ruta, waypoints=wps, centinelas=cent, base=base, ax=ax2)
-    st.pyplot(fig2)
-    st.download_button("💾 Descargar", _fig_a_bytes(fig2), "ruta_2d.png", "image/png")
+    _mostrar_figura(fig2, "medio")
+    st.download_button("Descargar PNG", _fig_a_bytes(fig2), "ruta_2d.png",
+                       "image/png", key="dl_ruta2d")
     plt.close(fig2)
 
 with tab3:
     fig3 = plot_3d(campo, ruta, waypoints=wps, centinelas=cent, base=base)
-    st.pyplot(fig3)
-    st.download_button("💾 Descargar", _fig_a_bytes(fig3), "ruta_3d.png", "image/png")
+    _mostrar_figura(fig3, "medio")
+    st.download_button("Descargar PNG", _fig_a_bytes(fig3), "ruta_3d.png",
+                       "image/png", key="dl_ruta3d")
     plt.close(fig3)
 
 with tab4:
     fig4, ax4 = plt.subplots(figsize=(12, 4))
     plot_bateria(campo, ruta, bat["niveles"], float(e_max),
                  waypoints=todos, orden=orden, ax=ax4)
-    st.pyplot(fig4)
-    st.download_button("💾 Descargar", _fig_a_bytes(fig4), "bateria.png", "image/png")
+    _mostrar_figura(fig4, "panoramico")
+    st.download_button("Descargar PNG", _fig_a_bytes(fig4), "bateria.png",
+                       "image/png", key="dl_bateria")
     plt.close(fig4)
 
     # Tabla por tramo
@@ -311,8 +421,9 @@ with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_csv:
     csv_bytes = pathlib.Path(tmp_csv.name).read_bytes()
 
 st.download_button(
-    "📥 Descargar ruta como CSV",
+    "Descargar ruta como CSV",
     data=csv_bytes,
     file_name="ruta_auv.csv",
     mime="text/csv",
+    key="dl_csv",
 )
