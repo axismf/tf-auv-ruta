@@ -113,19 +113,18 @@ def _init_state() -> None:
         "base_nodo": None,
         "base_idx":  None,
         # Fase 4 — drones
-        # Valores de referencia: AUV de investigación pequeño (Iver2 / REMUS-100 ligero)
-        # s=1.0 m/s → con corrientes Lima (≤0.5 m/s) la regeneración no se activa;
-        # usa s≤0.4 m/s si querés ver el régimen de regeneración.
-        # k_p=3.0 kg/m → coeficiente hidrodinámico real sin carga hotelera.
-        # e_max=2 MJ ≈ 556 Wh → batería Li-ion AUV pequeño.
+        # s=0.5 m/s: velocidad de crucero del informe; corrientes Lima llegan a
+        # 0.63 m/s, por lo que v_paralela puede superar s y activar regeneración.
+        # k_p=1.0, k_r=1.0, eta=0.30: valores por defecto del informe (Anexo).
+        # e_max=1 MJ ≈ 278 Wh → batería de referencia del informe.
         "drones": [
             {
                 "nombre":  "AUV Estándar",
-                "s":       1.0,
+                "s":       0.5,
                 "eta":     0.30,
-                "k_p":     3.0,
+                "k_p":     1.0,
                 "k_r":     1.0,
-                "e_max":   2_000_000,
+                "e_max":   1_000_000,
                 "pct_ini": 100,
             }
         ],
@@ -1241,7 +1240,7 @@ def _dialogo_drone(idx: int) -> None:
         e_max_kj = st.number_input(
             "Capacidad máxima [kJ]",
             min_value=1.0, max_value=100_000.0,
-            value=float(base.get("e_max", 2_000_000)) / 1_000.0,
+            value=float(base.get("e_max", 1_000_000)) / 1_000.0,
             step=10.0, format="%.0f",
             help="Energía almacenada al 100 % de carga.",
         )
