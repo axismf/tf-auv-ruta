@@ -113,14 +113,19 @@ def _init_state() -> None:
         "base_nodo": None,
         "base_idx":  None,
         # Fase 4 — drones
+        # Valores de referencia: AUV de investigación pequeño (Iver2 / REMUS-100 ligero)
+        # s=1.0 m/s → con corrientes Lima (≤0.5 m/s) la regeneración no se activa;
+        # usa s≤0.4 m/s si querés ver el régimen de regeneración.
+        # k_p=3.0 kg/m → coeficiente hidrodinámico real sin carga hotelera.
+        # e_max=2 MJ ≈ 556 Wh → batería Li-ion AUV pequeño.
         "drones": [
             {
-                "nombre": "AUV Estándar",
-                "s":      0.5,
-                "eta":    0.30,
-                "k_p":    1.0,
-                "k_r":    1.0,
-                "e_max":  1_000_000,
+                "nombre":  "AUV Estándar",
+                "s":       1.0,
+                "eta":     0.30,
+                "k_p":     3.0,
+                "k_r":     1.0,
+                "e_max":   2_000_000,
                 "pct_ini": 100,
             }
         ],
@@ -282,29 +287,33 @@ header[data-testid="stHeader"] { background-color: transparent !important; }
    SIDEBAR — NAVEGACIÓN DE FASES
    ═══════════════════════════════════════════════════════════════ */
 section[data-testid="stSidebar"] .stButton > button {
-    background:    transparent !important;
-    color:         #d1d5db !important;
-    border:        none !important;
-    text-align:    left !important;
-    width:         100% !important;
-    padding:       0.38rem 0.65rem !important;
-    border-radius: 6px !important;
-    font-weight:   400 !important;
+    background:     transparent !important;
+    color:          #9ca3af !important;
+    border:         none !important;
+    border-left:    3px solid transparent !important;
+    text-align:     left !important;
+    width:          100% !important;
+    padding:        0.38rem 0.65rem !important;
+    border-radius:  6px !important;
+    font-weight:    400 !important;
+    font-size:      .9rem !important;
     letter-spacing: 0 !important;
-    box-shadow:    none !important;
-    transition:    color .15s, background-color .15s !important;
+    box-shadow:     none !important;
+    line-height:    1.4 !important;
+    margin:         2px 0 !important;
+    min-height:     0 !important;
+    transition:     color .15s, background-color .15s !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
-    color:             #60a5fa !important;
-    background-color:  rgba(55,65,81,.5) !important;
-    transform:         none !important;
-    filter:            none !important;
+    color:            #60a5fa !important;
+    background-color: rgba(55,65,81,.5) !important;
+    transform:        none !important;
+    filter:           none !important;
 }
 
 .nav-fase-activa {
     display:          flex;
     align-items:      center;
-    gap:              8px;
     padding:          0.38rem 0.65rem;
     border-radius:    6px;
     background-color: rgba(37,99,235,.12);
@@ -316,15 +325,15 @@ section[data-testid="stSidebar"] .stButton > button:hover {
     line-height:      1.4;
 }
 .nav-fase-locked {
-    display:        flex;
-    align-items:    center;
-    gap:            8px;
-    padding:        0.38rem 0.65rem;
-    border-radius:  6px;
-    color:          #4b5563;
-    font-size:      .9rem;
-    margin:         2px 0;
-    line-height:    1.4;
+    display:     flex;
+    align-items: center;
+    padding:     0.38rem 0.65rem;
+    border-left: 3px solid transparent;
+    border-radius: 6px;
+    color:       #4b5563;
+    font-size:   .9rem;
+    margin:      2px 0;
+    line-height: 1.4;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -513,7 +522,7 @@ def _render_sidebar() -> None:
         for i, nombre in enumerate(_FASES_NOMBRES, start=1):
             if i < fase:
                 if st.button(
-                    f"✅  {i} · {nombre}",
+                    f"✓  {i} · {nombre}",
                     key=f"nav_f{i}",
                     use_container_width=True,
                 ):
@@ -527,7 +536,7 @@ def _render_sidebar() -> None:
                 )
             else:
                 st.markdown(
-                    f'<div class="nav-fase-locked">🔒&nbsp; {i} · {nombre}</div>',
+                    f'<div class="nav-fase-locked">&nbsp;&nbsp; {i} · {nombre}</div>',
                     unsafe_allow_html=True,
                 )
 
@@ -598,7 +607,7 @@ def _render_fase_actual() -> None:
     st.markdown(
         f'<div class="fase-header">'
         f'  <span class="fase-header-title">FASE {fase} · {nombre}</span>'
-        f'  <span class="fase-badge">🔵 Activa</span>'
+        f'  <span class="fase-badge">Activa</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -623,7 +632,7 @@ def _render_fase_actual() -> None:
 def _render_contenido_fase1() -> None:
     # --- Expander de contexto (colapsado por defecto) ---
     with st.expander(
-        "ⓘ  ¿Qué es Copernicus Marine Service y el formato NetCDF?",
+        "¿Qué es Copernicus Marine Service y el formato NetCDF?",
         expanded=False,
     ):
         st.markdown("""
@@ -659,7 +668,7 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
 
         with cols[idx]:
             with st.container(border=True):
-                st.markdown(f"**📍 {nombre_leg}**")
+                st.markdown(f"**{nombre_leg}**")
 
                 if meta:
                     st.markdown(
@@ -674,7 +683,7 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
                 else:
                     st.caption("No se pudo leer la metadata.")
 
-                btn_label = "✅  Seleccionado" if seleccion else "Seleccionar"
+                btn_label = "Seleccionado" if seleccion else "Seleccionar"
                 btn_type  = "primary" if seleccion else "secondary"
                 if st.button(
                     btn_label,
@@ -690,7 +699,7 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
     # Tarjeta de upload
     with cols[-1]:
         with st.container(border=True):
-            st.markdown("**📂 Subir mi propio .nc**")
+            st.markdown("**Subir mi propio .nc**")
             st.caption(
                 "Producto CMEMS compatible:  \n"
                 "`GLOBAL_ANALYSISFORECAST_PHY_001_024`"
@@ -728,7 +737,7 @@ def _render_dataset_cargado() -> None:
             return
 
     st.markdown("---")
-    st.markdown(f"**✅  Dataset cargado:** `{pathlib.Path(nc_path).name}`")
+    st.markdown(f"**Dataset cargado:** `{pathlib.Path(nc_path).name}`")
 
     # --- Métricas de resumen ---
     n_prof, n_lat, n_lon = campo.uo.shape
@@ -931,14 +940,14 @@ def _render_selector_base(campo) -> None:
         _, bi, bj = bc
         selec = (base_key == "callao")
         with st.container(border=True):
-            st.markdown("**⚓ Puerto del Callao**")
+            st.markdown("**Puerto del Callao**")
             st.markdown(
                 f"Lat: `{_LAT_CALLAO:.3f}°`  \n"
                 f"Lon: `{_LON_CALLAO:.3f}°`  \n"
                 f"Celda navegable: `({campo.lat[bi]:.3f}°, {campo.lon[bj]:.3f}°)`  \n"
-                f"Estado: ✅ Navegable"
+                f"Estado: Navegable"
             )
-            lbl  = "✅  Seleccionada" if selec else "Seleccionar"
+            lbl  = "Seleccionada" if selec else "Seleccionar"
             tipo = "primary" if selec else "secondary"
             if st.button(lbl, key="base_callao", type=tipo, use_container_width=True):
                 st.session_state.base_key = "callao"
@@ -963,11 +972,11 @@ def _render_selector_base(campo) -> None:
                 (campo.lon[bj] - info["lon"]) * 111.32
                 * math.cos(math.radians(float(campo.lat.mean()))),
             )
-            estado = "✅ Navegable" if en_dominio else "⚠️ Fuera del dominio"
+            estado = "Navegable" if en_dominio else "Fuera del dominio"
 
             selec = (base_key == idx)
             with st.container(border=True):
-                st.markdown(f"**📍 {info['nombre']}**")
+                st.markdown(f"**{info['nombre']}**")
                 st.markdown(
                     f"Lat: `{info['lat']:.3f}°`  \n"
                     f"Lon: `{info['lon']:.3f}°`  \n"
@@ -975,7 +984,7 @@ def _render_selector_base(campo) -> None:
                     + (f"Ajuste: ≈ {d_km:.1f} km  \n" if d_km > 0.5 else "")
                     + f"Estado: {estado}"
                 )
-                lbl  = "✅  Seleccionada" if selec else "Seleccionar"
+                lbl  = "Seleccionada" if selec else "Seleccionar"
                 tipo = "primary" if selec else "secondary"
                 if st.button(lbl, key=f"base_custom_{idx}",
                              type=tipo, use_container_width=True):
@@ -985,7 +994,7 @@ def _render_selector_base(campo) -> None:
     # ── Tarjeta "+" ─────────────────────────────────────────────────────
     with cols[-1]:
         with st.container(border=True):
-            st.markdown("**➕ Base personalizada**")
+            st.markdown("**Nueva base**")
             nombre_inp = st.text_input(
                 "Nombre de la base",
                 placeholder="Ej: Puerto Salaverry",
@@ -1232,7 +1241,7 @@ def _dialogo_drone(idx: int) -> None:
         e_max_kj = st.number_input(
             "Capacidad máxima [kJ]",
             min_value=1.0, max_value=100_000.0,
-            value=float(base.get("e_max", 1_000_000)) / 1_000.0,
+            value=float(base.get("e_max", 2_000_000)) / 1_000.0,
             step=10.0, format="%.0f",
             help="Energía almacenada al 100 % de carga.",
         )
@@ -1293,10 +1302,10 @@ def _render_tarjeta_drone(idx: int) -> None:
         # ── Cabecera ──────────────────────────────────────────────────
         h1, h2 = st.columns([5, 1])
         with h1:
-            st.markdown(f"**🤖 {drone['nombre']}**")
+            st.markdown(f"**{drone['nombre']}**")
         with h2:
             if selec:
-                st.markdown("**✅**")
+                st.markdown("*activo*")
 
         # ── Parámetros + imagen ───────────────────────────────────────
         p_col, img_col = st.columns([3, 1])
@@ -1315,7 +1324,7 @@ def _render_tarjeta_drone(idx: int) -> None:
         # ── Botones de acción ─────────────────────────────────────────
         b1, b2, b3 = st.columns(3)
         with b1:
-            lbl  = "✅ Activo" if selec else "Seleccionar"
+            lbl  = "Activo" if selec else "Seleccionar"
             tipo = "primary" if selec else "secondary"
             if st.button(lbl, key=f"sel_d_{idx}", type=tipo, use_container_width=True):
                 st.session_state.drone_key    = idx
@@ -1330,17 +1339,17 @@ def _render_tarjeta_drone(idx: int) -> None:
                     st.session_state.fase_actual = 4
                 st.rerun()
         with b2:
-            if st.button("✏️ Editar", key=f"edit_d_{idx}", use_container_width=True):
+            if st.button("Editar", key=f"edit_d_{idx}", use_container_width=True):
                 st.session_state.abrir_drone_idx = idx
                 st.rerun()
         with b3:
-            if st.button("🗑️", key=f"del_d_{idx}", use_container_width=True):
+            if st.button("Quitar", key=f"del_d_{idx}", use_container_width=True):
                 st.session_state.drones.pop(idx)
                 n = len(st.session_state.drones)
                 if n == 0:
                     st.session_state.drones = [{
-                        "nombre": "AUV Estándar", "s": 0.5, "eta": 0.30,
-                        "k_p": 1.0, "k_r": 1.0, "e_max": 1_000_000, "pct_ini": 100,
+                        "nombre": "AUV Estándar", "s": 1.0, "eta": 0.30,
+                        "k_p": 3.0, "k_r": 1.0, "e_max": 2_000_000, "pct_ini": 100,
                     }]
                 if st.session_state.drone_key >= len(st.session_state.drones):
                     st.session_state.drone_key = max(0, len(st.session_state.drones) - 1)
@@ -1373,7 +1382,7 @@ def _render_gestor_drones() -> None:
                 _render_tarjeta_drone(i + 1)
 
     st.markdown("")
-    if st.button("➕ Agregar drone", key="btn_agregar_drone"):
+    if st.button("Agregar drone", key="btn_agregar_drone"):
         st.session_state.abrir_drone_idx = -1
         st.rerun()
 
@@ -1412,7 +1421,10 @@ def _render_contenido_fase4() -> None:
         st.markdown(
             "Donde **v_r = s·ê − v_c** es la velocidad relativa al agua, "
             "**L** es la distancia entre celdas y **s** la velocidad de crucero.  \n"
-            "Pesos negativos → el AUV *recupera* energía (por eso se usa Bellman-Ford, no Dijkstra)."
+            "Pesos negativos → el AUV *recupera* energía (por eso se usa Bellman-Ford, no Dijkstra).  \n\n"
+            "> **Nota:** la regeneración solo ocurre cuando la corriente a favor supera "
+            "la velocidad de crucero (`v_paralela ≥ s`). Con corrientes costeras de Lima "
+            "(≤ 0.5 m/s), se activa únicamente si configurás `v ≤ 0.4 m/s`."
         )
 
     # ── Gestor de drones ────────────────────────────────────────────────────
@@ -1423,7 +1435,7 @@ def _render_contenido_fase4() -> None:
     if st.session_state.fase_actual == 4:
         st.markdown("")
         drone_sel = st.session_state.drones[st.session_state.drone_key]
-        if st.button("⚙️  Construir grafo", type="primary", key="btn_construir_grafo"):
+        if st.button("Construir grafo", type="primary", key="btn_construir_grafo"):
             with st.spinner("Construyendo grafo de energía — puede tardar unos segundos…"):
                 grafo, params = _construir_grafo_cache(
                     nc_path,
@@ -1464,7 +1476,7 @@ def _render_contenido_fase4() -> None:
         col3.metric("Batería inicial",    f"{bat_ini / 1_000:.0f} kJ")
         col4.metric(
             "Ciclo negativo",
-            "⚠️ Detectado" if hay_ciclo else "✅ Ninguno",
+            "Detectado" if hay_ciclo else "Ninguno",
         )
 
         if hay_ciclo:
@@ -1539,7 +1551,7 @@ def _render_contenido_fase5() -> None:
     # ── Botón calcular (solo en fase activa) ────────────────────────────────
     if st.session_state.fase_actual == 5:
         st.markdown("")
-        if st.button("⚙️  Calcular ruta óptima", type="primary",
+        if st.button("Calcular ruta óptima", type="primary",
                      key="btn_calcular_f5"):
             with st.spinner(
                 "Calculando matriz de costos energéticos "
@@ -1603,8 +1615,8 @@ def _render_contenido_fase5() -> None:
 
     # ── Visualizaciones en tabs ───────────────────────────────────────────
     tab_bf, tab_atsp = st.tabs([
-        "📊 Paso 1 · Grafo de costos BF",
-        "🔍 Paso 2 · Búsqueda ATSP",
+        "Paso 1 · Grafo de costos BF",
+        "Paso 2 · Búsqueda ATSP",
     ])
 
     with tab_bf:
@@ -1629,7 +1641,7 @@ def _render_contenido_fase5() -> None:
         )
 
     # ── Matriz completa ───────────────────────────────────────────────────
-    with st.expander("📋 Matriz de costos completa [J]", expanded=False):
+    with st.expander("Matriz de costos completa [J]", expanded=False):
         import pandas as pd
         df = pd.DataFrame(
             [
@@ -1710,7 +1722,7 @@ def _render_contenido_fase6() -> None:
     pct_min = bat["minimo"] / params.e_max * 100
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Misión viable",       "✅ Sí" if bat["viable"] else "❌ No")
+    col1.metric("Misión viable",       "Sí" if bat["viable"] else "No")
     col2.metric("Energía consumida",   f"{bat['consumido']:.1f} J")
     col3.metric("Energía regenerada",  f"{bat['regenerado']:.1f} J")
     col4.metric("Batería mínima",      f"{pct_min:.1f} %")
@@ -1738,7 +1750,7 @@ def _render_contenido_fase6() -> None:
     st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
 
     # ── Tabs de visualización ─────────────────────────────────────────────────
-    tab_2d, tab_3d, tab_bat = st.tabs(["🗺️  Ruta 2D", "🧊  Ruta 3D", "🔋  Batería"])
+    tab_2d, tab_3d, tab_bat = st.tabs(["Ruta 2D", "Ruta 3D", "Batería"])
 
     with tab_2d:
         fig2d, ax2d = plt.subplots(figsize=(9, 7))
@@ -1753,11 +1765,10 @@ def _render_contenido_fase6() -> None:
 
     with tab_3d:
         fig3d = plot_3d(campo, ruta, waypoints=wps, centinelas=cent, base=base_nodo)
-        st.pyplot(fig3d, use_container_width=True)
-        plt.close(fig3d)
+        st.plotly_chart(fig3d, use_container_width=True)
         st.caption(
-            "Vista 3D con planos de profundidad apilados. "
-            "El eje Z usa índices de capa para separación visual."
+            "Vista 3D interactiva: arrastra para rotar, scroll para zoom, "
+            "hover sobre los planos para ver velocidad de corriente."
         )
 
     with tab_bat:
@@ -1789,7 +1800,7 @@ def _render_contenido_fase6() -> None:
             round(float(campo.lon[j]), 6),
         ])
     st.download_button(
-        label="⬇️  Descargar ruta_auv.csv",
+        label="Descargar ruta_auv.csv",
         data=buf.getvalue().encode("utf-8"),
         file_name="ruta_auv.csv",
         mime="text/csv",
@@ -1805,7 +1816,7 @@ def _render_contenido_fase6() -> None:
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="Planificador AUV — Lima",
-    page_icon="🌊",
+    page_icon=None,
     layout="wide",
 )
 

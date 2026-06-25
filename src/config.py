@@ -23,11 +23,11 @@ class ParametrosModelo:
         resolucion_grados: Tamaño de celda de la malla [grados] (1/12).
     """
 
-    s: float = 0.5
-    k_p: float = 1.0
+    s: float = 1.0
+    k_p: float = 3.0
     k_r: float = 1.0
     eta: float = 0.3
-    e_max: float = 1.0e6
+    e_max: float = 2.0e6
     k_zonas: int = 6
     resolucion_grados: float = 1.0 / 12.0
 

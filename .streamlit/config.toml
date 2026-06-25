@@ -1,23 +1,11 @@
-# Tema visual del Planificador AUV.
-# Paleta marina coherente con soporte de modo claro y oscuro conmutable.
-# El usuario alterna desde el menú ☰ → Settings → Theme (o sigue el del sistema).
-# Requiere Streamlit >= 1.45 para las tablas [theme.light] / [theme.dark].
+# Tema visual — paleta Gofile Dark
+# bg-gray-900 / bg-gray-800 / blue-600
 
 [theme]
-base = "light"            # tema por defecto si no se elige otro
-primaryColor = "#1B6B7C"  # teal marino — acento de botones y controles
-font = "sans serif"
-baseRadius = "0.5rem"     # esquinas redondeadas uniformes en toda la app
-
-# --- Modo claro: blancos fríos sobre pizarra ---
-[theme.light]
-backgroundColor = "#FBFCFD"
-secondaryBackgroundColor = "#EEF3F5"
-textColor = "#16242B"
-
-# --- Modo oscuro: azul-petróleo profundo, teal luminoso de acento ---
-[theme.dark]
-primaryColor = "#3FA7BD"
-backgroundColor = "#0E1B21"
-secondaryBackgroundColor = "#17282F"
-textColor = "#E6EDF0"
+base                    = "dark"
+primaryColor            = "#2563eb"   # Gofile blue-600
+backgroundColor         = "#111827"   # Gofile gray-900
+secondaryBackgroundColor = "#1f2937"  # Gofile gray-800
+textColor               = "#ffffff"
+font                    = "sans serif"
+baseRadius              = "0.5rem"

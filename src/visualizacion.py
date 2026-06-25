@@ -292,18 +292,12 @@ def plot_3d(
     waypoints: list[Celda] | None = None,
     centinelas: list[Celda] | None = None,
     base: Celda | None = None,
-) -> plt.Figure:
-    """Visualización 3D de la ruta con planos de profundidad apilados (RF-07).
+):
+    """Visualización 3D interactiva de la ruta con planos de profundidad apilados.
 
-    Replica el estilo de Kularatne et al. (ICRA 2018, Fig. 6b): cada capa de
-    profundidad es un plano horizontal coloreado por rapidez de corriente,
-    apilados con separación visual uniforme. La ruta del AUV es una línea roja
-    que se mueve en lat-lon y salta entre planos al cambiar de capa.
-
-    El eje Z usa índices de capa (0, 1, 2, …) en lugar de metros reales para
-    que los planos queden bien separados visualmente (las profundidades reales
-    van de 0.49 a 3.82 m, un rango demasiado pequeño frente al dominio
-    horizontal).
+    Devuelve una figura Plotly: se puede rotar, hacer zoom y hover con el mouse.
+    Cada capa de profundidad es un plano coloreado por velocidad de corriente
+    (escala Blues). Las celdas de tierra se omiten (NaN → sin color).
 
     Args:
         campo: Campo de corrientes.
@@ -313,96 +307,129 @@ def plot_3d(
         base: Celda base de la misión (opcional).
 
     Returns:
-        La figura con la visualización 3D.
+        Figura Plotly interactiva.
     """
-    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-
-    fig = plt.figure(figsize=(11, 8))
-    ax = fig.add_subplot(111, projection="3d")
+    import plotly.graph_objects as go
 
     LON, LAT = _meshgrid(campo)
     n_capas = len(campo.prof)
-    cmap_mag = plt.get_cmap("Blues")
 
     mag_global_max = max(
         float(np.nanmax(np.sqrt(campo.uo[c]**2 + campo.vo[c]**2)))
         for c in range(n_capas)
     )
 
-    # --- Planos apilados (z = índice de capa, no metros reales) ---
+    traces: list = []
+
+    # --- Planos apilados (z = índice de capa, 0 = superficie) ---
     for capa in range(n_capas):
-        z_idx = float(capa)
-        nav = campo.navegable[capa]
-        mag = np.sqrt(campo.uo[capa]**2 + campo.vo[capa]**2)
+        mag = np.sqrt(campo.uo[capa]**2 + campo.vo[capa]**2).astype(float)
+        mag[~campo.navegable[capa]] = np.nan  # tierra → hueco transparente
 
-        rgba = cmap_mag(mag / mag_global_max)
-        rgba[~nav] = mcolors.to_rgba(_TIERRA)
+        traces.append(go.Surface(
+            x=LON,
+            y=LAT,
+            z=np.full_like(LON, float(capa)),
+            surfacecolor=mag,
+            colorscale="Blues",
+            cmin=0,
+            cmax=mag_global_max,
+            showscale=(capa == 0),
+            colorbar=dict(title="Velocidad<br>(m/s)", thickness=14, x=1.02)
+                if capa == 0 else {},
+            opacity=0.78,
+            name=f"{campo.prof[capa]:.2f} m",
+            hovertemplate=(
+                f"<b>Capa {campo.prof[capa]:.2f} m</b><br>"
+                "Lon: %{x:.4f}°<br>Lat: %{y:.4f}°<br>"
+                "Vel: %{surfacecolor:.3f} m/s<extra></extra>"
+            ),
+        ))
 
-        ax.plot_surface(
-            LON, LAT, np.full_like(LON, z_idx),
-            facecolors=rgba, alpha=0.72, shade=False,
-            linewidth=0, antialiased=False,
-        )
-
-        # Etiqueta con la profundidad real al borde izquierdo del plano.
-        ax.text(
-            campo.lon[0], campo.lat[-1], z_idx,
-            f"{campo.prof[capa]:.2f} m",
-            fontsize=8, color="dimgray", ha="right", va="bottom",
-        )
-
-    # --- Ruta del AUV: x=lon, y=lat, z=índice de capa ---
+    # --- Ruta del AUV ---
     lons   = [campo.lon[j] for _, _, j in ruta]
     lats   = [campo.lat[i] for _, i, _ in ruta]
     z_ruta = [float(p)     for p, _, _ in ruta]
 
-    ax.plot(lons, lats, z_ruta, color="red", linewidth=2.0, zorder=10)
+    traces.append(go.Scatter3d(
+        x=lons, y=lats, z=z_ruta,
+        mode="lines",
+        line=dict(color="red", width=5),
+        name="Ruta AUV",
+        hovertemplate="Lon: %{x:.4f}°<br>Lat: %{y:.4f}°<extra>Ruta AUV</extra>",
+    ))
 
-    # Inicio y fin de la ruta.
-    ax.scatter(lons[0],  lats[0],  z_ruta[0],
-               color="lime", s=70, zorder=11, depthshade=False, label="Inicio")
-    ax.scatter(lons[-1], lats[-1], z_ruta[-1],
-               color="lime", marker="x", s=90, linewidths=2,
-               zorder=11, depthshade=False, label="Fin")
+    traces.append(go.Scatter3d(
+        x=[lons[0], lons[-1]],
+        y=[lats[0], lats[-1]],
+        z=[z_ruta[0], z_ruta[-1]],
+        mode="markers+text",
+        marker=dict(color="lime", size=7, symbol="circle"),
+        text=["Inicio", "Fin"],
+        textposition="top center",
+        name="Inicio / Fin",
+        hovertemplate="%{text}<extra></extra>",
+    ))
 
-    # --- Waypoints, centinelas y base sobre sus planos ---
-    def _marcar(celdas, color, marker, prefix):
-        if not celdas:
-            return
-        for k, (p, i, j) in enumerate(celdas):
-            ax.scatter(campo.lon[j], campo.lat[i], float(p),
-                       color=color, marker=marker, s=100,
-                       zorder=12, depthshade=False)
-            ax.text(campo.lon[j], campo.lat[i], float(p),
-                    f" {prefix}{k+1}", fontsize=7, color=color)
+    # --- Waypoints ---
+    if waypoints:
+        traces.append(go.Scatter3d(
+            x=[campo.lon[j] for _, _, j in waypoints],
+            y=[campo.lat[i] for _, i, _ in waypoints],
+            z=[float(p)     for p, _, _ in waypoints],
+            mode="markers+text",
+            marker=dict(color="red", size=8, symbol="diamond"),
+            text=[f"C{k+1}" for k in range(len(waypoints))],
+            textposition="top center",
+            name="Convergencia",
+        ))
 
-    _marcar(waypoints,  "red",   "*", "C")
-    _marcar(centinelas, "cyan",  "^", "S")
+    # --- Centinelas ---
+    if centinelas:
+        traces.append(go.Scatter3d(
+            x=[campo.lon[j] for _, _, j in centinelas],
+            y=[campo.lat[i] for _, i, _ in centinelas],
+            z=[float(p)     for p, _, _ in centinelas],
+            mode="markers+text",
+            marker=dict(color="cyan", size=8, symbol="diamond"),
+            text=[f"S{k+1}" for k in range(len(centinelas))],
+            textposition="top center",
+            name="Centinela",
+        ))
+
+    # --- Base ---
     if base is not None:
         p, i, j = base
-        ax.scatter(campo.lon[j], campo.lat[i], float(p),
-                   color="lime", marker="s", s=100, zorder=12, depthshade=False)
-        ax.text(campo.lon[j], campo.lat[i], float(p),
-                " Base", fontsize=7, color="lime")
+        traces.append(go.Scatter3d(
+            x=[campo.lon[j]],
+            y=[campo.lat[i]],
+            z=[float(p)],
+            mode="markers+text",
+            marker=dict(color="lime", size=10, symbol="square"),
+            text=["Base"],
+            textposition="top center",
+            name="Base",
+        ))
 
-    # --- Ejes ---
-    ax.set_xlabel("Longitud [°]", labelpad=8)
-    ax.set_ylabel("Latitud [°]",  labelpad=8)
-    ax.set_zlabel("Capa de profundidad", labelpad=8)
-    ax.set_zticks(list(range(n_capas)))
-    ax.set_zticklabels([f"{campo.prof[c]:.2f} m" for c in range(n_capas)])
-    ax.invert_zaxis()   # capa 0 (superficie) arriba
-
-    ax.set_title("Ruta del AUV por capas de profundidad")
-
-    leyenda = [
-        plt.Line2D([0], [0], color="red",  linewidth=2,  label="Ruta AUV"),
-        mpatches.Patch(color="red",   label="Convergencia (Cx)"),
-        mpatches.Patch(color="cyan",  label="Centinela (Sx)"),
-        mpatches.Patch(color="lime",  label="Base / inicio / fin"),
-    ]
-    ax.legend(handles=leyenda, loc="upper left", fontsize=8)
-
+    fig = go.Figure(data=traces)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title="Longitud [°]",
+            yaxis_title="Latitud [°]",
+            zaxis=dict(
+                title="Profundidad",
+                autorange="reversed",
+                tickvals=list(range(n_capas)),
+                ticktext=[f"{campo.prof[c]:.2f} m" for c in range(n_capas)],
+            ),
+            aspectmode="manual",
+            aspectratio=dict(x=2.0, y=2.0, z=0.5),
+        ),
+        title="Ruta del AUV — capas de profundidad",
+        legend=dict(x=0.01, y=0.99),
+        margin=dict(l=0, r=0, b=0, t=40),
+        height=620,
+    )
     return fig
 
 
