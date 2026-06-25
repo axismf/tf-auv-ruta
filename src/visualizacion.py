@@ -12,6 +12,7 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     __package__ = "src"
 
+import itertools
 import math
 
 import matplotlib.pyplot as plt
@@ -67,6 +68,52 @@ def plot_campo(
     )
     plt.colorbar(q, ax=ax, label="Rapidez [m/s]")
     ax.set_title(f"Campo de corrientes — capa {capa} (prof. {campo.prof[capa]:.2f} m)")
+    ax.set_xlabel("Longitud [°]")
+    ax.set_ylabel("Latitud [°]")
+    return ax
+
+
+def plot_divergencia(
+    campo: CampoCorrientes,
+    div: np.ndarray,
+    capa: int = 0,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    """Mapa de divergencia horizontal sin waypoints — para la Fase 2 del journey.
+
+    Args:
+        campo: Campo de corrientes.
+        div: Campo de divergencia (n_lat, n_lon).
+        capa: Índice de profundidad graficado (solo para el título).
+        ax: Ejes opcionales donde dibujar.
+
+    Returns:
+        Los ejes con el mapa de divergencia.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8, 7))
+
+    LON, LAT = _meshgrid(campo)
+    nav       = campo.navegable[capa]
+    div_masked = np.where(nav, div, np.nan)
+
+    valores   = div_masked[~np.isnan(div_masked)]
+    vmax      = float(np.percentile(np.abs(valores), 95)) if len(valores) else 1e-5
+
+    ax.set_facecolor(_TIERRA)
+    im = ax.pcolormesh(
+        LON, LAT, div_masked,
+        cmap="RdBu", vmin=-vmax, vmax=vmax, shading="auto",
+    )
+    plt.colorbar(im, ax=ax, label="Divergencia [1/s]")
+
+    conv = np.where(nav & (div < 0), div, np.nan)
+    if not np.all(np.isnan(conv)):
+        ax.contourf(LON, LAT, conv, levels=5, cmap="Blues_r", alpha=0.25)
+
+    ax.set_title(
+        f"Divergencia horizontal — capa {capa}  ({campo.prof[capa]:.1f} m)"
+    )
     ax.set_xlabel("Longitud [°]")
     ax.set_ylabel("Latitud [°]")
     return ax
@@ -449,6 +496,220 @@ def plot_bateria(
     ax.legend(handles=ax.get_legend_handles_labels()[0] + extra, fontsize=8)
 
     return ax
+
+
+def plot_grafo_costos(
+    todos: list[Celda],
+    campo: CampoCorrientes,
+    M: np.ndarray,
+    etiquetas: dict,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    """Grafo dirigido de N zonas de misión con costos BF como pesos (RF-07).
+
+    Cada nodo se sitúa en su posición geográfica real. Las aristas dirigidas
+    representan el costo energético mínimo calculado por Bellman-Ford; el color
+    va de verde (barato) a rojo (caro). La asimetría A→B ≠ B→A queda visible
+    gracias a los arcos curvados.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 6))
+
+    lons_nodos = [campo.lon[n[2]] for n in todos]
+    lats_nodos = [campo.lat[n[1]] for n in todos]
+    pos = {n: (campo.lon[n[2]], campo.lat[n[1]]) for n in todos}
+
+    dl = max((max(lons_nodos) - min(lons_nodos)) * 0.45, 0.05)
+    db = max((max(lats_nodos) - min(lats_nodos)) * 0.45, 0.05)
+    ax.set_xlim(min(lons_nodos) - dl, max(lons_nodos) + dl)
+    ax.set_ylim(min(lats_nodos) - db, max(lats_nodos) + db)
+    ax.set_facecolor(_TIERRA)
+
+    mask = np.isfinite(M).copy()
+    np.fill_diagonal(mask, False)
+    costos_validos = M[mask]
+    if len(costos_validos) == 0:
+        vmin, vmax_c = 0.0, 1.0
+    else:
+        vmin = float(costos_validos.min())
+        vmax_c = float(costos_validos.max())
+        if vmin == vmax_c:
+            vmax_c = vmin + 1.0
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax_c)
+    cmap = plt.get_cmap("RdYlGn_r")
+
+    for i, u in enumerate(todos):
+        for j, v in enumerate(todos):
+            if i == j:
+                continue
+            costo = float(M[i, j])
+            if not math.isfinite(costo):
+                continue
+            color = cmap(norm(costo))
+            xi, yi = pos[u]
+            xj, yj = pos[v]
+            ax.annotate(
+                "",
+                xy=(xj, yj),
+                xytext=(xi, yi),
+                arrowprops=dict(
+                    arrowstyle="-|>",
+                    color=color,
+                    lw=1.3,
+                    connectionstyle="arc3,rad=0.2",
+                    mutation_scale=11,
+                ),
+                zorder=2,
+            )
+
+    _C_TIPO = {"Base": "#2ca02c", "C": "#d62728", "S": "#1f77b4"}
+    _M_TIPO = {"Base": "s",       "C": "*",        "S": "^"}
+    _S_TIPO = {"Base": 200,        "C": 250,         "S": 180}
+
+    for nodo in todos:
+        etiq = etiquetas.get(nodo, "?")
+        tipo = "Base" if etiq == "Base" else etiq[0]
+        color = _C_TIPO.get(tipo, "gray")
+        x, y = pos[nodo]
+        ax.scatter(x, y, c=color, marker=_M_TIPO.get(tipo, "o"),
+                   s=_S_TIPO.get(tipo, 180), zorder=4,
+                   edgecolors="white", linewidths=0.8)
+        ax.annotate(
+            etiq, (x, y),
+            textcoords="offset points", xytext=(7, 5),
+            fontsize=9, fontweight="bold", color="white", zorder=5,
+            bbox=dict(boxstyle="round,pad=0.2", fc=color, ec="none", alpha=0.8),
+        )
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, label="Costo energético [J]", shrink=0.7, pad=0.02)
+
+    ax.set_title("Grafo de costos entre zonas de misión\n(resultado de Bellman-Ford multi-fuente)")
+    ax.set_xlabel("Longitud [°]")
+    ax.set_ylabel("Latitud [°]")
+    return ax
+
+
+def plot_tours_atsp(
+    M: np.ndarray,
+    etiquetas: list[str],
+    orden_optimo: list[int],
+) -> plt.Figure:
+    """Búsqueda exhaustiva ATSP: distribución de todos los tours + ciclo óptimo (RF-07).
+
+    Panel izquierdo: barras verticales de los (N-1)! tours evaluados ordenados
+    por costo; el ganador se resalta en verde.
+    Panel derecho: el tour óptimo como ciclo sobre los nodos de misión con
+    el costo de cada tramo anotado.
+    """
+    base = orden_optimo[0]
+    intermedios = [i for i in range(len(etiquetas)) if i != base]
+
+    tours_costos: list[float] = []
+    tours_seqs: list[list[int]] = []
+    for perm in itertools.permutations(intermedios):
+        seq = [base] + list(perm) + [base]
+        c = sum(float(M[seq[k], seq[k + 1]]) for k in range(len(seq) - 1))
+        tours_costos.append(c)
+        tours_seqs.append(seq)
+
+    orden_sort = sorted(range(len(tours_costos)), key=lambda k: tours_costos[k])
+    costos_sort = [tours_costos[k] for k in orden_sort]
+    idx_opt = next(
+        k for k, orig_k in enumerate(orden_sort)
+        if tours_seqs[orig_k] == orden_optimo
+    )
+
+    n_tours = len(costos_sort)
+    fig_h = max(4.0, min(n_tours * 0.06 + 2.5, 8.0))
+    fig, (ax_bar, ax_ciclo) = plt.subplots(1, 2, figsize=(13, fig_h))
+
+    colores = ["#5899da"] * n_tours
+    colores[idx_opt] = "#2ca02c"
+    ax_bar.bar(range(n_tours), costos_sort, color=colores, width=1.0, zorder=2)
+
+    costo_opt = costos_sort[idx_opt]
+    rango = max(costos_sort) - min(costos_sort) if len(costos_sort) > 1 else 1.0
+    offset_x = max(1, n_tours * 0.08)
+    ax_bar.annotate(
+        f"Óptimo: {costo_opt:.1f} J",
+        xy=(idx_opt, costo_opt),
+        xytext=(min(idx_opt + offset_x, n_tours - 1), costo_opt + rango * 0.1),
+        arrowprops=dict(arrowstyle="->", color="#2ca02c", lw=1.5),
+        fontsize=8, color="#2ca02c", fontweight="bold",
+    )
+    ax_bar.set_xticks([])
+    ax_bar.set_xlabel(f"{n_tours} tours evaluados (ordenados de menor a mayor costo)")
+    ax_bar.set_ylabel("Costo total del tour [J]")
+    ax_bar.set_title("Fuerza bruta ATSP\ntodos los órdenes de visita posibles")
+    ax_bar.grid(axis="y", alpha=0.3, zorder=1)
+
+    visitados = orden_optimo[:-1]
+    n = len(visitados)
+    angulos = {
+        idx: math.pi / 2 - 2 * math.pi * k / n
+        for k, idx in enumerate(visitados)
+    }
+    pos_c = {idx: (math.cos(a), math.sin(a)) for idx, a in angulos.items()}
+
+    _C_TIPO = {"Base": "#2ca02c", "C": "#d62728", "S": "#1f77b4"}
+
+    for k in range(len(orden_optimo) - 1):
+        u, v = orden_optimo[k], orden_optimo[k + 1]
+        xu, yu = pos_c[u]
+        xv, yv = pos_c[v]
+        ax_ciclo.annotate(
+            "",
+            xy=(xv, yv), xytext=(xu, yu),
+            arrowprops=dict(
+                arrowstyle="-|>",
+                color="#555555",
+                lw=1.8,
+                connectionstyle="arc3,rad=0.05",
+                mutation_scale=14,
+                shrinkA=12,
+                shrinkB=12,
+            ),
+            zorder=2,
+        )
+        mx, my = (xu + xv) / 2 * 1.18, (yu + yv) / 2 * 1.18
+        etiq_cost = (f"{M[u, v]:.0f} J"
+                     if math.isfinite(float(M[u, v])) else "∞")
+        ax_ciclo.text(
+            mx, my, etiq_cost,
+            fontsize=7, ha="center", va="center", color="#444444",
+            bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.85),
+        )
+
+    for idx in visitados:
+        etiq = etiquetas[idx]
+        tipo = "Base" if etiq == "Base" else etiq[0]
+        color = _C_TIPO.get(tipo, "gray")
+        mk = "s" if tipo == "Base" else ("*" if tipo == "C" else "^")
+        x, y = pos_c[idx]
+        ax_ciclo.scatter(x, y, c=color, s=300, marker=mk, zorder=4,
+                         edgecolors="white", linewidths=1.0)
+        ax_ciclo.text(x, y - 0.22, etiq,
+                      ha="center", va="top",
+                      fontsize=9, fontweight="bold", color=color)
+
+    ax_ciclo.set_title(f"Tour óptimo — {costo_opt:.1f} J")
+    ax_ciclo.set_xlim(-1.65, 1.65)
+    ax_ciclo.set_ylim(-1.65, 1.65)
+    ax_ciclo.set_aspect("equal")
+    ax_ciclo.axis("off")
+
+    leyenda = [
+        mpatches.Patch(color="#2ca02c", label="Base"),
+        mpatches.Patch(color="#d62728", label="Convergencia (C)"),
+        mpatches.Patch(color="#1f77b4", label="Centinela (S)"),
+    ]
+    ax_ciclo.legend(handles=leyenda, loc="lower center", fontsize=8,
+                    bbox_to_anchor=(0.5, -0.08), ncol=3)
+
+    plt.tight_layout()
+    return fig
 
 
 if __name__ == "__main__":
