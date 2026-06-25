@@ -59,9 +59,7 @@ _FASES_NOMBRES = [
     "Misión",
 ]
 
-_FASES_DESCRIPCIONES = {
-    6: ("Resultados de la misión + Exportar", "Completa Fase 5 primero"),
-}
+
 
 _SVG_AUV = (
     '<svg viewBox="0 0 220 80" xmlns="http://www.w3.org/2000/svg">'
@@ -137,8 +135,10 @@ def _init_state() -> None:
         "ruta":       None,
         "orden_f5":   None,
         "costo_f5":   None,
-        "M_f5":       None,
-        "caminos_f5": None,
+        "M_f5":          None,
+        "caminos_f5":    None,
+        # navegación
+        "nav_direction": "right",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -156,14 +156,7 @@ def _fig_a_bytes(fig: plt.Figure) -> bytes:
 
 
 def _mostrar_figura(fig: plt.Figure, modo: str = "medio") -> None:
-    ratios = {
-        "compacto":   (1, 2, 1),
-        "medio":      (1, 3, 1),
-        "panoramico": (1, 8, 1),
-    }.get(modo, (1, 3, 1))
-    _izq, centro, _der = st.columns(ratios)
-    with centro:
-        st.pyplot(fig)
+    st.pyplot(fig, use_container_width=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -243,97 +236,390 @@ def _leer_metadata_nc(ruta: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Estilos
+# Estilos — Gofile Dark Shell
 # ---------------------------------------------------------------------------
 _ESTILOS = """
 <style>
-.stButton > button,
-.stDownloadButton > button {
-    border-radius: 8px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    padding: 0.55rem 1.1rem;
-    transition: filter 0.15s ease-in-out, transform 0.15s ease-in-out;
+/* ═══════════════════════════════════════════════════════════════
+   SHELL GLOBAL — body = gray-900, paneles = gray-800
+   ═══════════════════════════════════════════════════════════════ */
+html, body, .stApp { background-color: #111827 !important; }
+
+/* ─── Sidebar: rounded, shadow, margen 4 px ─────────────────── */
+section[data-testid="stSidebar"] {
+    background-color: #111827 !important;
+    padding: 4px 0 4px 4px !important;
 }
-.stButton > button:hover,
-.stDownloadButton > button:hover {
-    filter: brightness(0.96);
+section[data-testid="stSidebar"] > div:first-child {
+    background-color: #1f2937 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,.3),
+                0 4px  6px -4px rgba(0,0,0,.3) !important;
+    min-height: calc(100vh - 8px) !important;
+    overflow: hidden;
+}
+
+/* ─── Main area: padding para gap con sidebar ───────────────── */
+section[data-testid="stMain"] {
+    background-color: #111827 !important;
+    padding: 4px 4px 4px 0 !important;
+}
+.main .block-container {
+    background-color: #1f2937 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,.3),
+                0 4px  6px -4px rgba(0,0,0,.3) !important;
+    padding: 1.5rem 2rem 2.5rem !important;
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+    min-height: calc(100vh - 8px) !important;
+}
+
+/* ─── Header toolbar: transparente ─────────────────────────── */
+header[data-testid="stHeader"] { background-color: transparent !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR — NAVEGACIÓN DE FASES
+   ═══════════════════════════════════════════════════════════════ */
+section[data-testid="stSidebar"] .stButton > button {
+    background:    transparent !important;
+    color:         #d1d5db !important;
+    border:        none !important;
+    text-align:    left !important;
+    width:         100% !important;
+    padding:       0.38rem 0.65rem !important;
+    border-radius: 6px !important;
+    font-weight:   400 !important;
+    letter-spacing: 0 !important;
+    box-shadow:    none !important;
+    transition:    color .15s, background-color .15s !important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+    color:             #60a5fa !important;
+    background-color:  rgba(55,65,81,.5) !important;
+    transform:         none !important;
+    filter:            none !important;
+}
+
+.nav-fase-activa {
+    display:          flex;
+    align-items:      center;
+    gap:              8px;
+    padding:          0.38rem 0.65rem;
+    border-radius:    6px;
+    background-color: rgba(37,99,235,.12);
+    border-left:      3px solid #2563eb;
+    color:            #ffffff;
+    font-weight:      600;
+    font-size:        .9rem;
+    margin:           2px 0;
+    line-height:      1.4;
+}
+.nav-fase-locked {
+    display:        flex;
+    align-items:    center;
+    gap:            8px;
+    padding:        0.38rem 0.65rem;
+    border-radius:  6px;
+    color:          #4b5563;
+    font-size:      .9rem;
+    margin:         2px 0;
+    line-height:    1.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STEPPER HORIZONTAL
+   ═══════════════════════════════════════════════════════════════ */
+.stepper-wrap {
+    display:     flex;
+    align-items: flex-start;
+    margin:      0 0 1.4rem;
+    padding:     .8rem 0 .4rem;
+    overflow:    hidden;
+}
+.step-item {
+    display:        flex;
+    flex-direction: column;
+    align-items:    center;
+    flex-shrink:    0;
+    min-width:      54px;
+}
+.step-connector {
+    flex:        1;
+    height:      2px;
+    background:  rgba(255,255,255,.1);
+    align-self:  flex-start;
+    margin-top:  12px;
+    min-width:   6px;
+}
+.step-circle {
+    width:         26px;
+    height:        26px;
+    border-radius: 50%;
+    display:       flex;
+    align-items:   center;
+    justify-content: center;
+    font-weight:   700;
+    font-size:     .74rem;
+    flex-shrink:   0;
+}
+.step-done   .step-circle { background:#2563eb; color:#fff; }
+.step-active .step-circle {
+    background:#2563eb; color:#fff;
+    box-shadow: 0 0 0 4px rgba(37,99,235,.28);
+}
+.step-locked .step-circle {
+    background: rgba(255,255,255,.06);
+    color: #4b5563;
+    border: 1px solid #374151;
+}
+.step-label {
+    margin-top:  .3rem;
+    font-size:   .62rem;
+    text-align:  center;
+    max-width:   54px;
+    line-height: 1.2;
+}
+.step-done   .step-label { color: #6b7280; }
+.step-active .step-label { color: #fff; font-weight: 700; }
+.step-locked .step-label { color: #374151; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ENCABEZADO DE FASE
+   ═══════════════════════════════════════════════════════════════ */
+.fase-header {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    padding-bottom:  .75rem;
+    border-bottom:   1px solid #374151;
+    margin-bottom:   1.2rem;
+}
+.fase-header-title {
+    font-size:   1.1rem;
+    font-weight: 700;
+    color:       #fff;
+    margin:      0;
+}
+.fase-badge {
+    font-size:    .7rem;
+    font-weight:  600;
+    background:   rgba(37,99,235,.18);
+    color:        #60a5fa;
+    border:       1px solid rgba(37,99,235,.35);
+    padding:      .18rem .55rem;
+    border-radius: 999px;
+    white-space:  nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARDS / CONTAINERS
+   ═══════════════════════════════════════════════════════════════ */
+div[data-testid="stVerticalBlockBorderWrapper"] > div {
+    border-color:     #374151 !important;
+    background-color: rgba(55,65,81,.22) !important;
+    border-radius:    8px !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOTONES
+   ═══════════════════════════════════════════════════════════════ */
+.stButton > button, .stDownloadButton > button {
+    border-radius:   8px;
+    font-weight:     600;
+    letter-spacing:  .2px;
+    padding:         .5rem 1.1rem;
+    transition:      filter .15s ease-in-out, transform .15s ease-in-out;
+}
+.stButton > button:hover, .stDownloadButton > button:hover {
+    filter:    brightness(.88);
     transform: translateY(-1px);
 }
 
-.auv-hero {
-    border-left: 4px solid #2E8B9E;
-    padding: 0.2rem 0 0.2rem 1rem;
-    margin-bottom: 0.6rem;
+/* ═══════════════════════════════════════════════════════════════
+   IMÁGENES / PLOTS — max-width + centrado
+   ═══════════════════════════════════════════════════════════════ */
+div[data-testid="stImage"] {
+    max-width: 960px !important;
+    margin:    0 auto !important;
 }
-.auv-hero h1 {
-    font-size: 1.9rem;
-    font-weight: 700;
-    margin: 0;
-    line-height: 1.2;
+div[data-testid="stImage"] img { width: 100%; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMACIÓN CARRUSEL
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes slideRight {
+    from { opacity:0; transform: translateX(30px); }
+    to   { opacity:1; transform: translateX(0); }
 }
-.auv-hero .sub {
-    font-size: 0.95rem;
-    margin-top: 0.35rem;
-    max-width: 72ch;
-    opacity: 0.72;
+@keyframes slideLeft {
+    from { opacity:0; transform: translateX(-30px); }
+    to   { opacity:1; transform: translateX(0); }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   MISC
+   ═══════════════════════════════════════════════════════════════ */
 .capa-label {
-    text-align: center;
-    padding: 0.35rem 0.5rem;
-    background: rgba(128,128,128,0.08);
-    border-radius: 6px;
-    font-size: 0.9rem;
+    text-align:       center;
+    padding:          .35rem .5rem;
+    background:       rgba(55,65,81,.4);
+    border:           1px solid #374151;
+    border-radius:    6px;
+    font-size:        .9rem;
 }
+hr { border-color: #374151 !important; }
 </style>
 """
 
 
 # ---------------------------------------------------------------------------
-# Barra de progreso de fases
+# Sidebar Gofile-style
 # ---------------------------------------------------------------------------
-def _render_progreso() -> None:
+def _render_sidebar() -> None:
     fase = st.session_state.fase_actual
-    cols = st.columns(len(_FASES_NOMBRES))
-    for i, (col, nombre) in enumerate(zip(cols, _FASES_NOMBRES), start=1):
-        with col:
+    with st.sidebar:
+        # ── Branding ───────────────────────────────────────────────
+        b64 = base64.b64encode(_SVG_AUV.encode()).decode()
+        st.markdown(
+            f"""
+            <div style="display:flex;align-items:center;gap:10px;
+                        padding:4px 0 1.1rem;">
+              <img src="data:image/svg+xml;base64,{b64}"
+                   style="width:52px;height:auto;flex-shrink:0;"/>
+              <div>
+                <div style="font-weight:700;font-size:1.05rem;
+                            color:#fff;line-height:1.15;">AUV Lima</div>
+                <div style="font-size:.7rem;color:#9ca3af;">
+                  Planificador de rutas</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<hr style="border:none;border-top:1px solid #374151;'
+            'margin:0 0 .9rem;"/>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Navegación de fases ────────────────────────────────────
+        st.markdown(
+            '<div style="font-size:.7rem;font-weight:600;color:#6b7280;'
+            'letter-spacing:.06em;text-transform:uppercase;'
+            'margin-bottom:.5rem;">FASES</div>',
+            unsafe_allow_html=True,
+        )
+        for i, nombre in enumerate(_FASES_NOMBRES, start=1):
             if i < fase:
-                st.markdown(f"**✅ {i}·{nombre}**")
+                if st.button(
+                    f"✅  {i} · {nombre}",
+                    key=f"nav_f{i}",
+                    use_container_width=True,
+                ):
+                    st.session_state.nav_direction = "left"
+                    st.session_state.fase_actual   = i
+                    st.rerun()
             elif i == fase:
-                st.markdown(f"**🔵 {i}·{nombre}**")
+                st.markdown(
+                    f'<div class="nav-fase-activa">▶&nbsp; {i} · {nombre}</div>',
+                    unsafe_allow_html=True,
+                )
             else:
-                st.markdown(f"🔒 {i}·{nombre}")
-    st.divider()
+                st.markdown(
+                    f'<div class="nav-fase-locked">🔒&nbsp; {i} · {nombre}</div>',
+                    unsafe_allow_html=True,
+                )
+
+        # ── Footer ─────────────────────────────────────────────────
+        st.markdown(
+            '<hr style="border:none;border-top:1px solid #374151;'
+            'margin:.9rem 0 .6rem;"/>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Complejidad Algorítmica · UPC 2026-I")
+
+
+# ---------------------------------------------------------------------------
+# Stepper horizontal
+# ---------------------------------------------------------------------------
+def _render_stepper() -> None:
+    fase = st.session_state.fase_actual
+    partes: list[str] = []
+    for i, nombre in enumerate(_FASES_NOMBRES, start=1):
+        if i < fase:
+            cls, icono = "step-done",   "✓"
+        elif i == fase:
+            cls, icono = "step-active", str(i)
+        else:
+            cls, icono = "step-locked", str(i)
+        partes.append(
+            f'<div class="step-item {cls}">'
+            f'  <div class="step-circle">{icono}</div>'
+            f'  <div class="step-label">{nombre}</div>'
+            f'</div>'
+        )
+    html = '<div class="step-connector"></div>'.join(partes)
+    st.markdown(
+        f'<div class="stepper-wrap">{html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher — solo muestra la fase activa con animación de carrusel
+# ---------------------------------------------------------------------------
+def _carousel_js() -> None:
+    direction = st.session_state.get("nav_direction", "right")
+    anim      = "slideRight" if direction == "right" else "slideLeft"
+    st.markdown(
+        f"""
+        <script>
+        (function(){{
+            var c = window.parent.document.querySelector(
+                'section[data-testid="stMain"] .block-container');
+            if (c) {{
+                c.style.animation = 'none';
+                void c.offsetHeight;
+                c.style.animation = '{anim} 0.32s cubic-bezier(0.22,1,0.36,1)';
+            }}
+        }})();
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_fase_actual() -> None:
+    fase   = st.session_state.fase_actual
+    nombre = _FASES_NOMBRES[fase - 1] if 1 <= fase <= len(_FASES_NOMBRES) else ""
+
+    # Encabezado de fase (Gofile content-header style)
+    st.markdown(
+        f'<div class="fase-header">'
+        f'  <span class="fase-header-title">FASE {fase} · {nombre}</span>'
+        f'  <span class="fase-badge">🔵 Activa</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    _carousel_js()
+
+    dispatch = {
+        1: _render_contenido_fase1,
+        2: _render_contenido_fase2,
+        3: _render_contenido_fase3,
+        4: _render_contenido_fase4,
+        5: _render_contenido_fase5,
+        6: _render_contenido_fase6,
+    }
+    dispatch.get(fase, lambda: st.info("Fase no disponible."))()
+
 
 
 # ---------------------------------------------------------------------------
 # FASE 1 — Fuente de datos
 # ---------------------------------------------------------------------------
-def _render_fase1() -> None:
-    fase = st.session_state.fase_actual
-
-    c_titulo, c_badge = st.columns([7, 1])
-    with c_titulo:
-        st.markdown("### FASE 1 · Fuente de datos — campo de corrientes marinas")
-    with c_badge:
-        if fase > 1:
-            st.markdown("**✅ Completada**")
-        else:
-            st.markdown("**🔵 Activa**")
-
-    # Si ya está completada, mostrar solo resumen colapsado
-    if fase > 1:
-        nc_nombre = pathlib.Path(st.session_state.nc_path).name
-        with st.expander(f"Dataset cargado: `{nc_nombre}` — ver detalles", expanded=False):
-            _render_contenido_fase1()
-        st.divider()
-        return
-
-    _render_contenido_fase1()
-    st.divider()
-
-
 def _render_contenido_fase1() -> None:
     # --- Expander de contexto (colapsado por defecto) ---
     with st.expander(
@@ -537,41 +823,14 @@ def _render_dataset_cargado() -> None:
             type="primary",
             key="btn_continuar_f1",
         ):
-            st.session_state.fase_actual = 2
+            st.session_state.nav_direction = "right"
+            st.session_state.fase_actual   = 2
             st.rerun()
 
 
 # ---------------------------------------------------------------------------
 # FASE 2 — Análisis del campo de corrientes
 # ---------------------------------------------------------------------------
-def _render_fase2() -> None:
-    fase = st.session_state.fase_actual
-
-    c_titulo, c_badge = st.columns([7, 1])
-    with c_titulo:
-        st.markdown("### FASE 2 · Análisis del campo de corrientes")
-    with c_badge:
-        if fase > 2:
-            st.markdown("**✅ Completada**")
-        elif fase == 2:
-            st.markdown("**🔵 Activa**")
-        else:
-            st.caption("Completa Fase 1 primero")
-
-    if fase < 2:
-        st.divider()
-        return
-
-    if fase > 2:
-        with st.expander("Ver análisis del campo de corrientes", expanded=False):
-            _render_contenido_fase2()
-        st.divider()
-        return
-
-    _render_contenido_fase2()
-    st.divider()
-
-
 def _render_contenido_fase2() -> None:
     campo   = st.session_state.campo
     nc_path = st.session_state.nc_path
@@ -648,41 +907,14 @@ def _render_contenido_fase2() -> None:
             type="primary",
             key="btn_continuar_f2",
         ):
-            st.session_state.fase_actual = 3
+            st.session_state.nav_direction = "right"
+            st.session_state.fase_actual   = 3
             st.rerun()
 
 
 # ---------------------------------------------------------------------------
 # FASE 3 — Selección de zonas de misión
 # ---------------------------------------------------------------------------
-def _render_fase3() -> None:
-    fase = st.session_state.fase_actual
-
-    c_titulo, c_badge = st.columns([7, 1])
-    with c_titulo:
-        st.markdown("### FASE 3 · Selección de zonas de misión")
-    with c_badge:
-        if fase > 3:
-            st.markdown("**✅ Completada**")
-        elif fase == 3:
-            st.markdown("**🔵 Activa**")
-        else:
-            st.caption("Completa Fase 2 primero")
-
-    if fase < 3:
-        st.divider()
-        return
-
-    if fase > 3:
-        with st.expander("Ver zonas de misión seleccionadas", expanded=False):
-            _render_contenido_fase3()
-        st.divider()
-        return
-
-    _render_contenido_fase3()
-    st.divider()
-
-
 def _render_selector_base(campo) -> None:
     """Tarjetas para seleccionar la base de partida y retorno del AUV."""
     bases_custom = st.session_state.bases_personalizadas
@@ -910,14 +1142,14 @@ def _render_contenido_fase3() -> None:
             "▶  Continuar → Fase 4: Modelo energético y grafo",
             type="primary", key="btn_continuar_f3",
         ):
-            st.session_state.fase_actual = 4
+            st.session_state.nav_direction = "right"
+            st.session_state.fase_actual   = 4
             st.rerun()
 
 
 # ---------------------------------------------------------------------------
 # FASE 4 — Modelo energético y grafo
 # ---------------------------------------------------------------------------
-
 def _drone_img_html() -> str:
     b64 = base64.b64encode(_SVG_AUV.encode()).decode()
     return (
@@ -1146,34 +1378,6 @@ def _render_gestor_drones() -> None:
         st.rerun()
 
 
-def _render_fase4() -> None:
-    fase = st.session_state.fase_actual
-
-    c_titulo, c_badge = st.columns([7, 1])
-    with c_titulo:
-        st.markdown("### FASE 4 · Modelo energético y grafo")
-    with c_badge:
-        if fase > 4:
-            st.markdown("**✅ Completada**")
-        elif fase == 4:
-            st.markdown("**🔵 Activa**")
-        else:
-            st.caption("Completa Fase 3 primero")
-
-    if fase < 4:
-        st.divider()
-        return
-
-    if fase > 4:
-        with st.expander("Ver modelo energético y grafo construido", expanded=False):
-            _render_contenido_fase4()
-        st.divider()
-        return
-
-    _render_contenido_fase4()
-    st.divider()
-
-
 def _render_contenido_fase4() -> None:
     campo    = st.session_state.campo
     nc_path  = st.session_state.nc_path
@@ -1286,12 +1490,13 @@ def _render_contenido_fase4() -> None:
             "▶  Continuar → Fase 5: Optimización ATSP + Bellman-Ford",
             type="primary", key="btn_continuar_f4",
         ):
-            st.session_state.fase_actual = 5
+            st.session_state.nav_direction = "right"
+            st.session_state.fase_actual   = 5
             st.rerun()
 
 
 # ---------------------------------------------------------------------------
-# Fase 5 — Optimización ATSP + Bellman-Ford
+# FASE 5 — Optimización ATSP + Bellman-Ford
 # ---------------------------------------------------------------------------
 def _render_contenido_fase5() -> None:
     campo     = st.session_state.campo
@@ -1457,41 +1662,13 @@ def _render_contenido_fase5() -> None:
             "▶  Continuar → Fase 6: Resultados + Exportar",
             type="primary", key="btn_continuar_f5",
         ):
-            st.session_state.fase_actual = 6
+            st.session_state.nav_direction = "right"
+            st.session_state.fase_actual   = 6
             st.rerun()
 
 
-def _render_fase5() -> None:
-    fase = st.session_state.fase_actual
-
-    c_titulo, c_badge = st.columns([7, 1])
-    with c_titulo:
-        st.markdown("### FASE 5 · Optimización ATSP + Bellman-Ford")
-    with c_badge:
-        if fase > 5:
-            st.markdown("**✅ Completada**")
-        elif fase == 5:
-            st.markdown("**🔵 Activa**")
-        else:
-            st.caption("Completa Fase 4 primero")
-
-    if fase < 5:
-        st.divider()
-        return
-
-    if fase > 5:
-        with st.expander("Ver optimización ATSP y ruta calculada", expanded=False):
-            _render_contenido_fase5()
-        st.divider()
-        return
-
-    _render_contenido_fase5()
-    st.divider()
-
-
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# Fase 6 — Resultados de la misión + Exportar
+# FASE 6 — Resultados de la misión + Exportar
 # ---------------------------------------------------------------------------
 def _render_contenido_fase6() -> None:
     campo     = st.session_state.campo
@@ -1623,49 +1800,6 @@ def _render_contenido_fase6() -> None:
     )
 
 
-def _render_fase6() -> None:
-    fase = st.session_state.fase_actual
-
-    c_titulo, c_badge = st.columns([7, 1])
-    with c_titulo:
-        st.markdown("### FASE 6 · Resultados de la misión + Exportar")
-    with c_badge:
-        if fase == 6:
-            st.markdown("**🔵 Activa**")
-        else:
-            st.caption("Completa Fase 5 primero")
-
-    if fase < 6:
-        st.divider()
-        return
-
-    _render_contenido_fase6()
-    st.divider()
-
-
-# ---------------------------------------------------------------------------
-# Stub genérico (reservado para fases futuras)
-# ---------------------------------------------------------------------------
-def _render_fase_stub(num: int) -> None:
-    nombre, msg_bloqueo = _FASES_DESCRIPCIONES[num]
-    fase_actual = st.session_state.fase_actual
-
-    if fase_actual < num:
-        c1, c2 = st.columns([7, 1])
-        with c1:
-            st.markdown(f"### 🔒 FASE {num} · {nombre}")
-        with c2:
-            st.caption(msg_bloqueo)
-    elif fase_actual == num:
-        st.markdown(f"### 🔵 FASE {num} · {nombre}")
-        st.info("En construcción — próxima fase a implementar.")
-    else:
-        with st.expander(f"✅ FASE {num} · {nombre}", expanded=False):
-            st.caption("Completada.")
-
-    st.divider()
-
-
 # ---------------------------------------------------------------------------
 # Layout principal
 # ---------------------------------------------------------------------------
@@ -1676,27 +1810,8 @@ st.set_page_config(
 )
 
 st.markdown(_ESTILOS, unsafe_allow_html=True)
-
-st.markdown(
-    """
-    <div class="auv-hero">
-        <h1>🌊 Planificador de rutas AUV · Lima</h1>
-        <div class="sub">
-            Sistema de planificación de misiones de reconocimiento para Vehículos Submarinos
-            Autónomos en el litoral de Lima-Callao. Aprovecha corrientes marinas de Copernicus
-            Marine para minimizar el consumo energético.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 _init_state()
-_render_progreso()
-
-_render_fase1()
-_render_fase2()
-_render_fase3()
-_render_fase4()
-_render_fase5()
-_render_fase6()
+_render_sidebar()
+_render_stepper()
+st.divider()
+_render_fase_actual()
