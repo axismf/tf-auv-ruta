@@ -1,168 +1,58 @@
-"""Algoritmos de planificación: Bellman-Ford y ATSP (RF-04, RF-05).
-
-Capa 1: rutas de mínima energía entre zonas con Bellman-Ford (admite pesos
-negativos). Capa 2: orden óptimo de visita resuelto como un Problema del
-Viajante Asimétrico (ATSP) por enumeración exacta (fuerza bruta).
-"""
+"""Algoritmos de planificación: Bellman-Ford y ATSP (RF-04, RF-05)."""
 from __future__ import annotations
 
-if __package__ is None or __package__ == "":
-    import pathlib, sys
-    sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-    __package__ = "src"
-
-import itertools
-import math
-
-import numpy as np
-
+from .dependencias import *
 from .grafo import Grafo, Nodo
 
 
-def bellman_ford(
-    grafo: Grafo,
-    origen: Nodo,
-) -> tuple[dict[Nodo, float], dict[Nodo, Nodo | None]]:
-    """Calcula las distancias de mínima energía desde un origen (RF-04).
-
-    Implementa relajación con terminación temprana: corta en cuanto una
-    iteración completa no relaja ninguna arista. En una malla esto converge en
-    decenas de pasadas (no en V-1), lo que cumple el presupuesto de tiempo
-    del RNF-01.
-
-    Args:
-        grafo: Grafo dirigido y ponderado (puede tener pesos negativos).
-        origen: Nodo desde el que se calculan las distancias.
-
-    Returns:
-        Tupla (dist, pred) donde dist[v] es la energía mínima origen -> v y
-        pred[v] el predecesor de v en el árbol de caminos mínimos.
-        Nodos inalcanzables quedan con dist = +inf.
-    """
-    dist: dict[Nodo, float] = {n: math.inf for n in grafo.nodos()}
-    pred: dict[Nodo, Nodo | None] = {n: None for n in grafo.nodos()}
-    dist[origen] = 0.0
-
-    aristas = list(grafo.aristas())
-
-    for _ in range(grafo.num_nodos - 1):
-        relajado = False
-        for u, v, w in aristas:
-            if dist[u] < math.inf and dist[u] + w < dist[v]:
-                dist[v] = dist[u] + w
-                pred[v] = u
-                relajado = True
-        if not relajado:
-            break   # convergencia anticipada
-
-    return dist, pred
+__all__ = [
+    "ensamblar_ruta",
+    "atsp_fuerza_bruta",
+    "matriz_costos",
+    "bellman_ford",
+    "reconstruir_camino",
+    "hay_ciclo_negativo",
+]
 
 
-def hay_ciclo_negativo(grafo: Grafo, dist: dict[Nodo, float]) -> bool:
-    """Detecta la existencia de algún ciclo negativo alcanzable (RNF-07).
-
-    Una pasada adicional de relajación tras Bellman-Ford: si alguna arista aún
-    puede relajarse, existe un ciclo negativo. Funciona como control de
-    validación del modelo (no debería ocurrir si los parámetros están bien
-    calibrados).
-
-    Args:
-        grafo: Grafo evaluado.
-        dist: Distancias devueltas por bellman_ford.
-
-    Returns:
-        True si se detecta al menos un ciclo negativo.
-    """
-    for u, v, w in grafo.aristas():
-        if dist[u] < math.inf and dist[u] + w < dist[v]:
-            return True
-    return False
-
-
-def reconstruir_camino(
-    pred: dict[Nodo, Nodo | None],
-    origen: Nodo,
-    destino: Nodo,
+def ensamblar_ruta(
+    orden: list[int],
+    caminos: dict[tuple[int, int], list[Nodo]],
 ) -> list[Nodo]:
-    """Reconstruye la secuencia de nodos del camino origen -> destino.
+    """Concatena los tramos en el orden óptimo para formar la ruta completa.
+
+    Evita duplicar el nodo de unión entre tramos consecutivos.
 
     Args:
-        pred: Diccionario de predecesores de bellman_ford.
-        origen: Nodo inicial.
-        destino: Nodo final.
+        orden:   Secuencia óptima de índices de zona (salida de atsp_fuerza_bruta).
+        caminos: Caminos nodo a nodo entre pares de zonas (salida de matriz_costos).
 
     Returns:
-        Lista ordenada de nodos desde origen hasta destino.
-        Si destino es inalcanzable devuelve lista vacía.
+        Secuencia completa de nodos base → ... → base.
     """
-    if pred.get(destino) is None and destino != origen:
-        return []
-
-    camino: list[Nodo] = []
-    actual: Nodo | None = destino
-    while actual is not None:
-        camino.append(actual)
-        if actual == origen:
-            break
-        actual = pred.get(actual)
-    else:
-        return []   # no se llegó al origen (grafo desconectado)
-
-    camino.reverse()
-    return camino
+    ruta: list[Nodo] = []
+    for i in range(len(orden) - 1):
+        tramo = caminos[(orden[i], orden[i + 1])]
+        if not tramo:
+            continue
+        ruta.extend(tramo[1:] if ruta else tramo)
+    return ruta
 
 
-def matriz_costos(
-    grafo: Grafo,
-    waypoints: list[Nodo],
-) -> tuple[np.ndarray, dict[tuple[int, int], list[Nodo]]]:
-    """Construye la matriz de costos energéticos entre cada par de zonas (RF-04).
-
-    Ejecuta Bellman-Ford desde cada waypoint y registra tanto el costo como el
-    camino nodo a nodo entre cada par. Por la asimetría del grafo, M[i, j] no
-    es igual a M[j, i].
+def atsp_fuerza_bruta(
+    matriz: np.ndarray,
+    base: int = 0,
+) -> tuple[list[int], float]:
+    """Resuelve el ATSP por enumeración exacta de las (k-1)! permutaciones (RF-05).
 
     Args:
-        grafo: Grafo del dominio.
-        waypoints: Lista de zonas a conectar (incluida la base).
+        matriz: Matriz de costos asimétrica entre zonas (k × k).
+        base:   Índice de la zona base (partida y retorno obligatorio).
 
     Returns:
-        Tupla (M, caminos) donde M[i, j] es la energía mínima del waypoint i al
-        j, y caminos[(i, j)] la secuencia de nodos correspondiente.
+        (orden, costo_total) — orden incluye la base al inicio y al final.
     """
-    k = len(waypoints)
-    M = np.full((k, k), math.inf)
-    caminos: dict[tuple[int, int], list[Nodo]] = {}
-
-    for i, origen in enumerate(waypoints):
-        dist, pred = bellman_ford(grafo, origen)
-        for j, destino in enumerate(waypoints):
-            if i == j:
-                M[i, j] = 0.0
-                caminos[(i, j)] = [origen]
-                continue
-            M[i, j] = dist[destino]
-            caminos[(i, j)] = reconstruir_camino(pred, origen, destino)
-
-    return M, caminos
-
-
-def atsp_fuerza_bruta(matriz: np.ndarray, base: int = 0) -> tuple[list[int], float]:
-    """Resuelve el orden óptimo de visita por enumeración exacta (RF-05).
-
-    Prueba las (k-1)! permutaciones de los waypoints intermedios partiendo y
-    regresando a la base, y devuelve la de menor energía total.
-
-    Args:
-        matriz: Matriz de costos asimétrica entre zonas (k x k).
-        base: Índice de la zona base (partida y retorno obligatorio).
-
-    Returns:
-        Tupla (orden, costo_total) donde orden es la secuencia completa de
-        índices empezando y terminando en base, y costo_total la energía neta
-        de esa ruta.
-    """
-    k = matriz.shape[0]
+    k           = matriz.shape[0]
     intermedios = [i for i in range(k) if i != base]
 
     mejor_orden: list[int] = []
@@ -181,91 +71,147 @@ def atsp_fuerza_bruta(matriz: np.ndarray, base: int = 0) -> tuple[list[int], flo
     return mejor_orden, mejor_costo
 
 
-def ensamblar_ruta(
-    orden: list[int],
-    caminos: dict[tuple[int, int], list[Nodo]],
-) -> list[Nodo]:
-    """Concatena los tramos en el orden óptimo para formar la ruta completa.
+def matriz_costos(
+    grafo: Grafo,
+    waypoints: list[Nodo],
+) -> tuple[np.ndarray, dict[tuple[int, int], list[Nodo]]]:
+    """Construye la matriz de costos energéticos entre cada par de zonas (RF-04).
 
-    Evita duplicar el nodo de unión entre tramos consecutivos.
+    Ejecuta Bellman-Ford desde cada waypoint. M[i, j] = energía mínima i → j.
 
     Args:
-        orden: Secuencia óptima de índices de zona (de atsp_fuerza_bruta),
-               empezando y terminando en la base.
-        caminos: Caminos nodo a nodo entre pares de zonas (de matriz_costos).
+        grafo:     Grafo del dominio.
+        waypoints: Lista de zonas a conectar (incluida la base).
 
     Returns:
-        Secuencia completa de nodos de la ruta del AUV, base -> ... -> base.
+        (M, caminos): M[i, j] = energía mínima; caminos[(i, j)] = secuencia de nodos.
     """
-    ruta: list[Nodo] = []
-    for i in range(len(orden) - 1):
-        tramo = caminos[(orden[i], orden[i + 1])]
-        if not tramo:
-            continue
-        # El primer nodo del tramo ya está en ruta (excepto al inicio).
-        if ruta:
-            ruta.extend(tramo[1:])
-        else:
-            ruta.extend(tramo)
-    return ruta
+    k = len(waypoints)
+    M = np.full((k, k), math.inf)
+    caminos: dict[tuple[int, int], list[Nodo]] = {}
+
+    for i, origen in enumerate(waypoints):
+        dist, pred = bellman_ford(grafo, origen)
+        for j, destino in enumerate(waypoints):
+            if i == j:
+                M[i, j]         = 0.0
+                caminos[(i, j)] = [origen]
+                continue
+            M[i, j]         = dist[destino]
+            caminos[(i, j)] = reconstruir_camino(pred, origen, destino)
+
+    return M, caminos
+
+
+def bellman_ford(
+    grafo: Grafo,
+    origen: Nodo,
+) -> tuple[dict[Nodo, float], dict[Nodo, Nodo | None]]:
+    """Distancias de mínima energía desde origen, con terminación anticipada (RF-04).
+
+    Args:
+        grafo:  Grafo dirigido (puede tener pesos negativos).
+        origen: Nodo desde el que se calculan las distancias.
+
+    Returns:
+        (dist, pred): dist[v] = energía mínima origen → v;
+                      pred[v] = predecesor de v en el árbol de caminos mínimos.
+    """
+    dist: dict[Nodo, float]       = {n: math.inf for n in grafo.nodos()}
+    pred: dict[Nodo, Nodo | None] = {n: None     for n in grafo.nodos()}
+    dist[origen] = 0.0
+
+    aristas = list(grafo.aristas())
+
+    for _ in range(grafo.num_nodos - 1):
+        relajado = False
+        for u, v, w in aristas:
+            if dist[u] < math.inf and dist[u] + w < dist[v]:
+                dist[v] = dist[u] + w
+                pred[v] = u
+                relajado = True
+        if not relajado:
+            break
+
+    return dist, pred
+
+
+def reconstruir_camino(
+    pred: dict[Nodo, Nodo | None],
+    origen: Nodo,
+    destino: Nodo,
+) -> list[Nodo]:
+    """Reconstruye la secuencia de nodos del camino origen → destino.
+
+    Returns:
+        Lista ordenada de nodos, o lista vacía si destino es inalcanzable.
+    """
+    if pred.get(destino) is None and destino != origen:
+        return []
+
+    camino: list[Nodo] = []
+    actual: Nodo | None = destino
+    while actual is not None:
+        camino.append(actual)
+        if actual == origen:
+            break
+        actual = pred.get(actual)
+    else:
+        return []
+
+    camino.reverse()
+    return camino
+
+
+def hay_ciclo_negativo(
+    grafo: Grafo,
+    dist: dict[Nodo, float],
+) -> bool:
+    """Detecta la existencia de algún ciclo negativo alcanzable.
+
+    Una pasada adicional de relajación tras Bellman-Ford lo revela.
+    """
+    for u, v, w in grafo.aristas():
+        if dist[u] < math.inf and dist[u] + w < dist[v]:
+            return True
+    return False
 
 
 if __name__ == "__main__":
-    import pathlib
-    from src.datos import cargar_corrientes, resumen
+    # Ejecutar con: python -m src.algoritmos
+    from src.datos import cargar_corrientes
     from src.config import ParametrosModelo
     from src.grafo import construir_grafo
     from src.zonas import (
-        divergencia, seleccionar_waypoints,
-        seleccionar_centinelas, celda_mas_cercana,
-        agregar_puntos_fijos,
+        divergencia, seleccionar_waypoints, seleccionar_centinelas,
+        celda_mas_cercana, agregar_puntos_fijos,
     )
 
-    nc = pathlib.Path(__file__).parent.parent / "data" / "lima3.nc"
-    print("Cargando campo …")
-    campo = cargar_corrientes(str(nc))
+    nc     = pathlib.Path(__file__).parent.parent / "data" / "lima3.nc"
+    campo  = cargar_corrientes(str(nc))
     params = ParametrosModelo()
+    capa   = 0
 
-    capa = 0
     lat_media = math.radians(float(campo.lat.mean()))
-    dy = abs(float(campo.lat[1] - campo.lat[0])) * 111_320.0
-    dx = abs(float(campo.lon[1] - campo.lon[0])) * 111_320.0 * math.cos(lat_media)
+    dy = abs(float(campo.lat[1] - campo.lat[0])) * GRADOS_A_METROS
+    dx = abs(float(campo.lon[1] - campo.lon[0])) * GRADOS_A_METROS * math.cos(lat_media)
 
-    uo  = campo.uo[capa]
-    vo  = campo.vo[capa]
-    nav = campo.navegable[capa]
-
-    div  = divergencia(uo, vo, dx, dy)
-    wps  = seleccionar_waypoints(div, nav, params.k_zonas, capa=capa, dist_min_celdas=3)
-    cent = seleccionar_centinelas(uo, vo, nav, campo.lon, n=2, capa=capa)
-    base = celda_mas_cercana(-12.05, -77.15, campo.lat, campo.lon, nav, capa=capa)
+    div  = divergencia(campo.uo[capa], campo.vo[capa], dx, dy)
+    wps  = seleccionar_waypoints(div, campo.navegable[capa], params.k_zonas,
+                                  capa=capa, dist_min_celdas=3)
+    cent = seleccionar_centinelas(campo.uo[capa], campo.vo[capa],
+                                   campo.navegable[capa], campo.lon, n=2, capa=capa)
+    base = celda_mas_cercana(-12.05, -77.15, campo.lat, campo.lon,
+                              campo.navegable[capa], capa=capa)
     todos, base_nodo = agregar_puntos_fijos(wps + cent, wps[0], base)
+    base_idx         = todos.index(base_nodo)
 
-    print(f"Waypoints totales: {len(todos)}  →  {math.factorial(len(todos)-1)} órdenes ATSP")
+    grafo        = construir_grafo(campo, params)
+    dist0, _     = bellman_ford(grafo, todos[0])
+    print(f"Ciclo negativo: {'SÍ ⚠' if hay_ciclo_negativo(grafo, dist0) else 'No ✓'}")
 
-    print("\nConstruyendo grafo …")
-    grafo = construir_grafo(campo, params)
-    print(f"Nodos: {grafo.num_nodos}  Aristas: {grafo.num_aristas}")
-
-    print("\nComprobando ciclos negativos …")
-    dist0, _ = bellman_ford(grafo, todos[0])
-    if hay_ciclo_negativo(grafo, dist0):
-        print("  ⚠ Se detectó un ciclo negativo — revisar parámetros del modelo.")
-    else:
-        print("  ✓ Sin ciclos negativos.")
-
-    print("\nCalculando matriz de costos …")
-    M, caminos = matriz_costos(grafo, todos)
-    base_idx = todos.index(base_nodo)
-    print("Matriz de costos [J] (filas=origen, cols=destino):")
-    print(np.array2string(M, precision=1, suppress_small=True))
-
-    print("\nResolviendo ATSP …")
-    orden, costo_total = atsp_fuerza_bruta(M, base=base_idx)
-    print(f"Orden óptimo de visita: {orden}")
-    print(f"Costo total de la misión: {costo_total:.2f} J")
-
-    ruta = ensamblar_ruta(orden, caminos)
-    print(f"Nodos en la ruta completa: {len(ruta)}")
-
+    M, caminos   = matriz_costos(grafo, todos)
+    orden, costo = atsp_fuerza_bruta(M, base=base_idx)
+    ruta         = ensamblar_ruta(orden, caminos)
+    print(f"Orden: {orden}  Costo: {costo:.2f} J  Nodos en ruta: {len(ruta)}")
     print("\n✓ algoritmos.py OK")

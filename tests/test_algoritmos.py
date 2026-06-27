@@ -4,9 +4,7 @@ Ejecutar con:  pytest
 """
 from __future__ import annotations
 
-import math
-
-import numpy as np
+from src.dependencias import *
 
 from src.grafo import Grafo
 from src.algoritmos import bellman_ford, hay_ciclo_negativo, atsp_fuerza_bruta

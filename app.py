@@ -9,19 +9,10 @@ Ejecutar con:
 """
 from __future__ import annotations
 
-import base64
-import math
-import io
-import pathlib
-import tempfile
-
-import matplotlib.pyplot as plt
-import numpy as np
-import streamlit as st
-import xarray as xr
+from dependencias import *
 
 from src.config import ParametrosModelo
-from src.datos import cargar_corrientes, _ALIAS
+from src.datos import CampoCorrientes, cargar_corrientes, _ALIAS
 from src.grafo import construir_grafo
 from src.zonas import (
     divergencia,
@@ -43,205 +34,30 @@ from src.visualizacion import (
     plot_grafo_costos, plot_tours_atsp,
 )
 
-# ---------------------------------------------------------------------------
-# Constantes
-# ---------------------------------------------------------------------------
-_LAT_CALLAO = -12.05
-_LON_CALLAO = -77.15
-_DATA_DIR    = pathlib.Path(__file__).parent / "data"
 
-_FASES_NOMBRES = [
-    "Datos",
-    "Corrientes",
-    "Zonas",
-    "Grafo",
-    "ATSP",
-    "Misión",
-]
+# ── Constantes ────────────────────────────────────────────────────────────────
+_LAT_CALLAO    = -12.05
+_LON_CALLAO    = -77.15
+_DATA_DIR      = pathlib.Path(__file__).parent / "data"
 
-
+_FASES_NOMBRES = ["Datos", "Corrientes", "Zonas", "Grafo", "ATSP", "Misión"]
 
 _SVG_AUV = (
     '<svg viewBox="0 0 220 80" xmlns="http://www.w3.org/2000/svg">'
-    # cuerpo principal
     '<ellipse cx="108" cy="40" rx="88" ry="20" fill="#2E8B9E"/>'
-    # nariz
     '<path d="M196,40 Q220,28 217,40 Q220,52 196,40" fill="#1a6b7e"/>'
-    # cola
     '<ellipse cx="22" cy="40" rx="12" ry="20" fill="#1a6b7e"/>'
-    # aletas de cola
     '<path d="M26,34 L6,18 L18,34" fill="#1a6b7e"/>'
     '<path d="M26,46 L6,62 L18,46" fill="#1a6b7e"/>'
-    # aleta dorsal
     '<path d="M80,21 L90,5 L100,21" fill="#1a6b7e"/>'
-    # ojo/visor
     '<circle cx="155" cy="34" r="7" fill="#7ec8e3" stroke="#1a6b7e" stroke-width="1.5"/>'
-    # propulsor
     '<ellipse cx="10" cy="40" rx="3" ry="12" fill="none" stroke="#d0d0d0" stroke-width="1.8"/>'
     '<line x1="10" y1="28" x2="10" y2="52" stroke="#d0d0d0" stroke-width="1.8"/>'
     '<line x1="2" y1="40" x2="18" y2="40" stroke="#d0d0d0" stroke-width="1.5"/>'
-    # sensor
     '<rect x="95" y="16" width="3" height="8" fill="#b0b0b0" rx="1"/>'
     '</svg>'
 )
 
-
-# ---------------------------------------------------------------------------
-# Session state
-# ---------------------------------------------------------------------------
-def _init_state() -> None:
-    defaults: dict = {
-        "fase_actual":   1,
-        "campo":         None,
-        "nc_path":       None,
-        "capa_preview":  0,
-        # Fase 2
-        "div":           None,
-        "dx":            None,
-        "dy":            None,
-        # Fase 3 — parámetros
-        "k_zonas_f3":           6,
-        "k_cent_f3":            2,
-        "dist_min_f3":          3,
-        "bases_personalizadas": [],   # [{nombre, lat, lon}, ...]
-        "base_key":             "callao",
-        # Fase 3 — resultados
-        "wps":       None,
-        "cent":      None,
-        "base_celda": None,
-        "todos":     None,
-        "base_nodo": None,
-        "base_idx":  None,
-        # Fase 4 — drones
-        # s=0.5 m/s: velocidad de crucero del informe; corrientes Lima llegan a
-        # 0.63 m/s, por lo que v_paralela puede superar s y activar regeneración.
-        # k_p=1.0, k_r=1.0, eta=0.30: valores por defecto del informe (Anexo).
-        # e_max=1 MJ ≈ 278 Wh → batería de referencia del informe.
-        "drones": [
-            {
-                "nombre":  "AUV Estándar",
-                "s":       0.5,
-                "eta":     0.30,
-                "k_p":     1.0,
-                "k_r":     1.0,
-                "e_max":   1_000_000,
-                "pct_ini": 100,
-            }
-        ],
-        "drone_key":      0,
-        "abrir_drone_idx": None,   # None=cerrado, -1=nuevo, >=0=editar
-        # Fase 4 — resultados
-        "grafo":         None,
-        "params_f4":     None,
-        "bat_ini_j":     None,
-        "hay_ciclo_f4":  None,
-        # Fase 5 — resultados
-        "ruta":       None,
-        "orden_f5":   None,
-        "costo_f5":   None,
-        "M_f5":          None,
-        "caminos_f5":    None,
-        # navegación
-        "nav_direction": "right",
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def _fig_a_bytes(fig: plt.Figure) -> bytes:
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    buf.seek(0)
-    return buf.read()
-
-
-def _mostrar_figura(fig: plt.Figure, modo: str = "medio") -> None:
-    st.pyplot(fig, use_container_width=True)
-
-
-@st.cache_data(show_spinner=False)
-def _calcular_div(nc_path: str) -> tuple:
-    """Calcula divergencia superficial; cacheado por ruta de archivo."""
-    campo   = cargar_corrientes(nc_path)
-    capa    = 0
-    lat_med = math.radians(float(campo.lat.mean()))
-    dy      = abs(float(campo.lat[1] - campo.lat[0])) * 111_320.0
-    dx      = abs(float(campo.lon[1] - campo.lon[0])) * 111_320.0 * math.cos(lat_med)
-    div     = divergencia(campo.uo[capa], campo.vo[capa], dx, dy)
-    return div, dx, dy
-
-
-@st.cache_data(show_spinner=False)
-def _cargar_campo(ruta: str):
-    return cargar_corrientes(ruta)
-
-
-@st.cache_data(show_spinner=False)
-def _leer_metadata_nc(ruta: str) -> dict | None:
-    """Lee solo coordenadas del .nc para mostrar en la tarjeta."""
-    try:
-        with xr.open_dataset(ruta) as ds:
-            disponibles = set(ds.variables) | set(ds.coords)
-
-            def _alias(clave: str) -> str | None:
-                for a in _ALIAS[clave]:
-                    if a in disponibles:
-                        return a
-                return None
-
-            n_lat  = _alias("lat")
-            n_lon  = _alias("lon")
-            n_prof = _alias("prof")
-            n_uo   = _alias("uo")
-            n_vo   = _alias("vo")
-            n_time = _alias("time")
-
-            if not all([n_lat, n_lon, n_prof, n_uo, n_vo]):
-                return None
-
-            lat  = ds[n_lat].values.astype(float)
-            lon  = ds[n_lon].values.astype(float)
-            prof = ds[n_prof].values.astype(float)
-
-            paso_lat_km = abs(float(lat[1] - lat[0])) * 111.32 if len(lat) > 1 else 0.0
-            paso_lon_km = (
-                abs(float(lon[1] - lon[0])) * 111.32
-                * math.cos(math.radians(float(lat.mean())))
-                if len(lon) > 1 else 0.0
-            )
-            paso_km = (paso_lat_km + paso_lon_km) / 2
-
-            fecha_str = ""
-            if n_time and n_time in ds:
-                import pandas as pd
-                try:
-                    fecha_str = str(pd.Timestamp(ds[n_time].values[0]).date())
-                except Exception:
-                    fecha_str = str(ds[n_time].values[0])[:10]
-
-            return {
-                "lat_min": float(lat.min()),
-                "lat_max": float(lat.max()),
-                "lon_min": float(lon.min()),
-                "lon_max": float(lon.max()),
-                "n_lat":   len(lat),
-                "n_lon":   len(lon),
-                "n_prof":  len(prof),
-                "paso_km": paso_km,
-                "fecha":   fecha_str,
-                "vars":    [v for v in [n_uo, n_vo] if v],
-            }
-    except Exception:
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Estilos — Gofile Dark Shell
-# ---------------------------------------------------------------------------
 _ESTILOS = """
 <style>
 /* ═══════════════════════════════════════════════════════════════
@@ -481,13 +297,211 @@ hr { border-color: #374151 !important; }
 """
 
 
-# ---------------------------------------------------------------------------
-# Sidebar Gofile-style
-# ---------------------------------------------------------------------------
+# ════════════════════════════════════════════════════════════════
+#  DECLARACIONES
+# ════════════════════════════════════════════════════════════════
+
+# ── Session state ─────────────────────────────────────────────────────────────
+def _init_state() -> None: ...
+
+# ── Helpers de renderizado ────────────────────────────────────────────────────
+def _fig_a_bytes(fig: plt.Figure) -> bytes: ...
+def _mostrar_figura(fig: plt.Figure, modo: str = "medio") -> None: ...
+def _calcular_div(nc_path: str) -> tuple: ...
+def _cargar_campo(ruta: str) -> CampoCorrientes: ...
+def _leer_metadata_nc(ruta: str) -> dict | None: ...
+
+# ── Layout global ─────────────────────────────────────────────────────────────
+def _render_sidebar() -> None: ...
+def _render_stepper() -> None: ...
+def _carousel_js() -> None: ...
+def _render_fase_actual() -> None: ...
+
+# ── Fase 1 — Fuente de datos ──────────────────────────────────────────────────
+def _render_contenido_fase1() -> None: ...
+def _render_dataset_cargado() -> None: ...
+
+# ── Fase 2 — Análisis de corrientes ──────────────────────────────────────────
+def _render_contenido_fase2() -> None: ...
+
+# ── Fase 3 — Selección de zonas ───────────────────────────────────────────────
+def _render_selector_base(campo: CampoCorrientes) -> None: ...
+def _render_resultado_fase3(campo: CampoCorrientes, div: np.ndarray) -> None: ...
+def _render_contenido_fase3() -> None: ...
+
+# ── Fase 4 — Modelo energético y grafo ───────────────────────────────────────
+def _drone_img_html() -> str: ...
+def _construir_grafo_cache(
+    nc_path: str,
+    s: float, eta: float, k_p: float, k_r: float, e_max: float, k_zonas: int,
+) -> tuple: ...
+def _dialogo_drone(idx: int) -> None: ...
+def _render_tarjeta_drone(idx: int) -> None: ...
+def _render_gestor_drones() -> None: ...
+def _render_contenido_fase4() -> None: ...
+
+# ── Fase 5 — Optimización ATSP + Bellman-Ford ────────────────────────────────
+def _render_contenido_fase5() -> None: ...
+
+# ── Fase 6 — Resultados y exportación ────────────────────────────────────────
+def _render_contenido_fase6() -> None: ...
+
+
+# ════════════════════════════════════════════════════════════════
+#  IMPLEMENTACIONES
+# ════════════════════════════════════════════════════════════════
+
+# ── Session state ─────────────────────────────────────────────────────────────
+
+def _init_state() -> None:
+    defaults: dict = {
+        "fase_actual":   1,
+        "campo":         None,
+        "nc_path":       None,
+        "capa_preview":  0,
+        # Fase 2
+        "div":           None,
+        "dx":            None,
+        "dy":            None,
+        # Fase 3 — parámetros
+        "k_zonas_f3":           6,
+        "k_cent_f3":            2,
+        "dist_min_f3":          3,
+        "bases_personalizadas": [],
+        "base_key":             "callao",
+        # Fase 3 — resultados
+        "wps":        None,
+        "cent":       None,
+        "base_celda": None,
+        "todos":      None,
+        "base_nodo":  None,
+        "base_idx":   None,
+        # Fase 4 — drones
+        "drones": [
+            {
+                "nombre":  "AUV Estándar",
+                "s":       0.5,
+                "eta":     0.30,
+                "k_p":     1.0,
+                "k_r":     1.0,
+                "e_max":   1_000_000,
+                "pct_ini": 100,
+            }
+        ],
+        "drone_key":       0,
+        "abrir_drone_idx": None,
+        # Fase 4 — resultados
+        "grafo":        None,
+        "params_f4":    None,
+        "bat_ini_j":    None,
+        "hay_ciclo_f4": None,
+        # Fase 5 — resultados
+        "ruta":      None,
+        "orden_f5":  None,
+        "costo_f5":  None,
+        "M_f5":      None,
+        "caminos_f5": None,
+        # navegación
+        "nav_direction": "right",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+# ── Helpers de renderizado ────────────────────────────────────────────────────
+
+def _fig_a_bytes(fig: plt.Figure) -> bytes:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    buf.seek(0)
+    return buf.read()
+
+
+def _mostrar_figura(fig: plt.Figure, modo: str = "medio") -> None:
+    st.pyplot(fig, use_container_width=True)
+
+
+@st.cache_data(show_spinner=False)
+def _calcular_div(nc_path: str) -> tuple:
+    """Calcula divergencia superficial; cacheado por ruta de archivo."""
+    campo   = cargar_corrientes(nc_path)
+    capa    = 0
+    lat_med = math.radians(float(campo.lat.mean()))
+    dy      = abs(float(campo.lat[1] - campo.lat[0])) * GRADOS_A_METROS
+    dx      = abs(float(campo.lon[1] - campo.lon[0])) * GRADOS_A_METROS * math.cos(lat_med)
+    div     = divergencia(campo.uo[capa], campo.vo[capa], dx, dy)
+    return div, dx, dy
+
+
+@st.cache_data(show_spinner=False)
+def _cargar_campo(ruta: str) -> CampoCorrientes:
+    return cargar_corrientes(ruta)
+
+
+@st.cache_data(show_spinner=False)
+def _leer_metadata_nc(ruta: str) -> dict | None:
+    """Lee solo coordenadas del .nc para mostrar en la tarjeta de dataset."""
+    try:
+        with xr.open_dataset(ruta) as ds:
+            disponibles = set(ds.variables) | set(ds.coords)
+
+            def _alias(clave: str) -> str | None:
+                for a in _ALIAS[clave]:
+                    if a in disponibles:
+                        return a
+                return None
+
+            n_lat  = _alias("lat")
+            n_lon  = _alias("lon")
+            n_prof = _alias("prof")
+            n_uo   = _alias("uo")
+            n_vo   = _alias("vo")
+            n_time = _alias("time")
+
+            if not all([n_lat, n_lon, n_prof, n_uo, n_vo]):
+                return None
+
+            lat  = ds[n_lat].values.astype(float)
+            lon  = ds[n_lon].values.astype(float)
+            prof = ds[n_prof].values.astype(float)
+
+            paso_lat_km = abs(float(lat[1] - lat[0])) * 111.32 if len(lat) > 1 else 0.0
+            paso_lon_km = (
+                abs(float(lon[1] - lon[0])) * 111.32
+                * math.cos(math.radians(float(lat.mean())))
+                if len(lon) > 1 else 0.0
+            )
+            paso_km = (paso_lat_km + paso_lon_km) / 2
+
+            fecha_str = ""
+            if n_time and n_time in ds:
+                try:
+                    fecha_str = str(pd.Timestamp(ds[n_time].values[0]).date())
+                except Exception:
+                    fecha_str = str(ds[n_time].values[0])[:10]
+
+            return {
+                "lat_min": float(lat.min()),
+                "lat_max": float(lat.max()),
+                "lon_min": float(lon.min()),
+                "lon_max": float(lon.max()),
+                "n_lat":   len(lat),
+                "n_lon":   len(lon),
+                "n_prof":  len(prof),
+                "paso_km": paso_km,
+                "fecha":   fecha_str,
+                "vars":    [v for v in [n_uo, n_vo] if v],
+            }
+    except Exception:
+        return None
+
+
+# ── Layout global ─────────────────────────────────────────────────────────────
+
 def _render_sidebar() -> None:
     fase = st.session_state.fase_actual
     with st.sidebar:
-        # ── Branding ───────────────────────────────────────────────
         b64 = base64.b64encode(_SVG_AUV.encode()).decode()
         st.markdown(
             f"""
@@ -510,8 +524,6 @@ def _render_sidebar() -> None:
             'margin:0 0 .9rem;"/>',
             unsafe_allow_html=True,
         )
-
-        # ── Navegación de fases ────────────────────────────────────
         st.markdown(
             '<div style="font-size:.7rem;font-weight:600;color:#6b7280;'
             'letter-spacing:.06em;text-transform:uppercase;'
@@ -538,8 +550,6 @@ def _render_sidebar() -> None:
                     f'<div class="nav-fase-locked">&nbsp;&nbsp; {i} · {nombre}</div>',
                     unsafe_allow_html=True,
                 )
-
-        # ── Footer ─────────────────────────────────────────────────
         st.markdown(
             '<hr style="border:none;border-top:1px solid #374151;'
             'margin:.9rem 0 .6rem;"/>',
@@ -548,11 +558,8 @@ def _render_sidebar() -> None:
         st.caption("Complejidad Algorítmica · UPC 2026-I")
 
 
-# ---------------------------------------------------------------------------
-# Stepper horizontal
-# ---------------------------------------------------------------------------
 def _render_stepper() -> None:
-    fase = st.session_state.fase_actual
+    fase   = st.session_state.fase_actual
     partes: list[str] = []
     for i, nombre in enumerate(_FASES_NOMBRES, start=1):
         if i < fase:
@@ -574,9 +581,6 @@ def _render_stepper() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Dispatcher — solo muestra la fase activa con animación de carrusel
-# ---------------------------------------------------------------------------
 def _carousel_js() -> None:
     direction = st.session_state.get("nav_direction", "right")
     anim      = "slideRight" if direction == "right" else "slideLeft"
@@ -601,8 +605,6 @@ def _carousel_js() -> None:
 def _render_fase_actual() -> None:
     fase   = st.session_state.fase_actual
     nombre = _FASES_NOMBRES[fase - 1] if 1 <= fase <= len(_FASES_NOMBRES) else ""
-
-    # Encabezado de fase (Gofile content-header style)
     st.markdown(
         f'<div class="fase-header">'
         f'  <span class="fase-header-title">FASE {fase} · {nombre}</span>'
@@ -610,9 +612,7 @@ def _render_fase_actual() -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
-
     _carousel_js()
-
     dispatch = {
         1: _render_contenido_fase1,
         2: _render_contenido_fase2,
@@ -624,12 +624,9 @@ def _render_fase_actual() -> None:
     dispatch.get(fase, lambda: st.info("Fase no disponible."))()
 
 
+# ── Fase 1 — Fuente de datos ──────────────────────────────────────────────────
 
-# ---------------------------------------------------------------------------
-# FASE 1 — Fuente de datos
-# ---------------------------------------------------------------------------
 def _render_contenido_fase1() -> None:
-    # --- Expander de contexto (colapsado por defecto) ---
     with st.expander(
         "¿Qué es Copernicus Marine Service y el formato NetCDF?",
         expanded=False,
@@ -652,13 +649,10 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
 
     st.markdown("**Seleccioná un dataset de corrientes para la misión:**")
 
-    # --- Descubrir .nc en data/ ---
     archivos_nc = sorted(_DATA_DIR.glob("*.nc"))
     n_datasets  = len(archivos_nc)
-
-    # Hasta 3 tarjetas de datasets + 1 de upload
-    n_cols = min(n_datasets, 3) + 1
-    cols   = st.columns(n_cols)
+    n_cols      = min(n_datasets, 3) + 1
+    cols        = st.columns(n_cols)
 
     for idx, nc_path in enumerate(archivos_nc[:3]):
         meta       = _leer_metadata_nc(str(nc_path))
@@ -668,7 +662,6 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
         with cols[idx]:
             with st.container(border=True):
                 st.markdown(f"**{nombre_leg}**")
-
                 if meta:
                     st.markdown(
                         f"Lat `{meta['lat_min']:.1f}°` → `{meta['lat_max']:.1f}°`  \n"
@@ -695,7 +688,6 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
                     st.session_state.capa_preview = 0
                     st.rerun()
 
-    # Tarjeta de upload
     with cols[-1]:
         with st.container(border=True):
             st.markdown("**Subir mi propio .nc**")
@@ -718,7 +710,6 @@ Producto compatible: `GLOBAL_ANALYSISFORECAST_PHY_001_024`
                 st.session_state.capa_preview = 0
                 st.rerun()
 
-    # --- Resumen + preview si hay dataset seleccionado ---
     if st.session_state.nc_path:
         _render_dataset_cargado()
 
@@ -738,7 +729,6 @@ def _render_dataset_cargado() -> None:
     st.markdown("---")
     st.markdown(f"**Dataset cargado:** `{pathlib.Path(nc_path).name}`")
 
-    # --- Métricas de resumen ---
     n_prof, n_lat, n_lon = campo.uo.shape
     total   = campo.navegable.size
     agua    = int(campo.navegable.sum())
@@ -751,10 +741,10 @@ def _render_dataset_cargado() -> None:
     paso_km = (paso_lat_km + paso_lon_km) / 2
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Grilla",             f"{n_lat} × {n_lon}")
-    col2.metric("Paso aprox.",        f"≈ {paso_km:.1f} km")
-    col3.metric("Capas",              str(n_prof))
-    col4.metric("Celdas navegables",  f"{agua}/{total}  ({100*agua/total:.0f} %)")
+    col1.metric("Grilla",            f"{n_lat} × {n_lon}")
+    col2.metric("Paso aprox.",       f"≈ {paso_km:.1f} km")
+    col3.metric("Capas",             str(n_prof))
+    col4.metric("Celdas navegables", f"{agua}/{total}  ({100*agua/total:.0f} %)")
 
     c_cob, c_vel = st.columns(2)
     with c_cob:
@@ -773,13 +763,11 @@ def _render_dataset_cargado() -> None:
                 f"máx `{float(np.nanmax(mag_nav)):.3f} m/s`"
             )
 
-    # --- Vista previa con navbar de capas ---
     st.markdown("**Vista previa del campo de corrientes**")
 
     capa_actual = st.session_state.capa_preview
     n_capas     = len(campo.prof)
 
-    # Navbar: ◀  |  etiqueta central  |  ▶  |  dropdown
     nav1, nav2, nav3, nav4 = st.columns([1, 4, 1, 3])
 
     with nav1:
@@ -803,8 +791,8 @@ def _render_dataset_cargado() -> None:
             st.rerun()
 
     with nav4:
-        opciones    = [f"Capa {i}  ·  {campo.prof[i]:.1f} m" for i in range(n_capas)]
-        nueva_capa  = st.selectbox(
+        opciones   = [f"Capa {i}  ·  {campo.prof[i]:.1f} m" for i in range(n_capas)]
+        nueva_capa = st.selectbox(
             "Saltar a capa",
             options=opciones,
             index=capa_actual,
@@ -816,14 +804,12 @@ def _render_dataset_cargado() -> None:
             st.session_state.capa_preview = idx_nueva
             st.rerun()
 
-    # Figura del campo
     with st.spinner(f"Renderizando capa {capa_actual}…"):
         fig, ax = plt.subplots(figsize=(8, 6))
         plot_campo(campo, capa=capa_actual, ax=ax)
         _mostrar_figura(fig, "medio")
         plt.close(fig)
 
-    # --- Botón continuar ---
     st.markdown("")
     if st.session_state.fase_actual == 1:
         if st.button(
@@ -836,20 +822,17 @@ def _render_dataset_cargado() -> None:
             st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# FASE 2 — Análisis del campo de corrientes
-# ---------------------------------------------------------------------------
+# ── Fase 2 — Análisis del campo de corrientes ─────────────────────────────────
+
 def _render_contenido_fase2() -> None:
     campo   = st.session_state.campo
     nc_path = st.session_state.nc_path
     capa    = 0
 
-    # Calcular dx/dy para el bloque "¿Qué entra?"
     lat_med = math.radians(float(campo.lat.mean()))
     dy_km   = abs(float(campo.lat[1] - campo.lat[0])) * 111.32
     dx_km   = abs(float(campo.lon[1] - campo.lon[0])) * 111.32 * math.cos(lat_med)
 
-    # ── ¿Qué entra? ────────────────────────────────────────────────────────
     st.markdown("**¿Qué entra en esta fase?**")
     st.info(
         f"▸ Campo de corrientes de Fase 1 — `{pathlib.Path(nc_path).name}`  \n"
@@ -857,7 +840,6 @@ def _render_contenido_fase2() -> None:
         f"▸ Resolución espacial: dx ≈ **{dx_km:.1f} km/celda**  ·  dy ≈ **{dy_km:.1f} km/celda**"
     )
 
-    # ── ¿Qué se calcula? ───────────────────────────────────────────────────
     st.markdown("**¿Qué se calcula?**")
     with st.container(border=True):
         st.markdown(
@@ -877,7 +859,6 @@ def _render_contenido_fase2() -> None:
             )
             st.caption("Calculada con diferencias finitas centradas (`numpy.gradient`).")
 
-    # ── Calcular (automático) y mostrar resultado ───────────────────────────
     with st.spinner("Calculando divergencia…"):
         div, dx, dy = _calcular_div(nc_path)
         st.session_state.div = div
@@ -907,7 +888,6 @@ def _render_contenido_fase2() -> None:
         "Tono marrón = tierra"
     )
 
-    # ── Continuar (solo cuando la fase está activa) ────────────────────────
     if st.session_state.fase_actual == 2:
         st.markdown("")
         if st.button(
@@ -920,20 +900,18 @@ def _render_contenido_fase2() -> None:
             st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# FASE 3 — Selección de zonas de misión
-# ---------------------------------------------------------------------------
-def _render_selector_base(campo) -> None:
+# ── Fase 3 — Selección de zonas de misión ────────────────────────────────────
+
+def _render_selector_base(campo: CampoCorrientes) -> None:
     """Tarjetas para seleccionar la base de partida y retorno del AUV."""
     bases_custom = st.session_state.bases_personalizadas
     base_key     = st.session_state.base_key
     capa         = 0
     nav          = campo.navegable[capa]
 
-    n_tarjetas = 1 + len(bases_custom) + 1          # callao + custom + "+"
+    n_tarjetas = 1 + len(bases_custom) + 1
     cols       = st.columns(min(n_tarjetas, 4))
 
-    # ── Tarjeta Callao ──────────────────────────────────────────────────
     with cols[0]:
         bc = celda_mas_cercana(_LAT_CALLAO, _LON_CALLAO, campo.lat, campo.lon, nav, capa=capa)
         _, bi, bj = bc
@@ -952,7 +930,6 @@ def _render_selector_base(campo) -> None:
                 st.session_state.base_key = "callao"
                 st.rerun()
 
-    # ── Tarjetas bases personalizadas ───────────────────────────────────
     for idx, info in enumerate(bases_custom):
         col_idx = 1 + idx
         if col_idx >= min(n_tarjetas, 4) - 1:
@@ -972,8 +949,8 @@ def _render_selector_base(campo) -> None:
                 * math.cos(math.radians(float(campo.lat.mean()))),
             )
             estado = "Navegable" if en_dominio else "Fuera del dominio"
+            selec  = (base_key == idx)
 
-            selec = (base_key == idx)
             with st.container(border=True):
                 st.markdown(f"**{info['nombre']}**")
                 st.markdown(
@@ -990,7 +967,6 @@ def _render_selector_base(campo) -> None:
                     st.session_state.base_key = idx
                     st.rerun()
 
-    # ── Tarjeta "+" ─────────────────────────────────────────────────────
     with cols[-1]:
         with st.container(border=True):
             st.markdown("**Nueva base**")
@@ -1007,8 +983,7 @@ def _render_selector_base(campo) -> None:
                 "Longitud [°]", value=-77.0, step=0.01, format="%.3f",
                 key="inp_base_lon",
             )
-            if st.button("Agregar base", key="btn_agregar_base",
-                         use_container_width=True):
+            if st.button("Agregar base", key="btn_agregar_base", use_container_width=True):
                 nombre_final = nombre_inp.strip() or f"Base {len(bases_custom) + 1}"
                 st.session_state.bases_personalizadas.append({
                     "nombre": nombre_final,
@@ -1019,7 +994,7 @@ def _render_selector_base(campo) -> None:
                 st.rerun()
 
 
-def _render_resultado_fase3(campo, div) -> None:
+def _render_resultado_fase3(campo: CampoCorrientes, div: np.ndarray) -> None:
     wps     = st.session_state.wps
     cent    = st.session_state.cent
     base    = st.session_state.base_celda
@@ -1059,7 +1034,7 @@ def _render_resultado_fase3(campo, div) -> None:
             "Divergencia [1/s]": "—",
         })
     _, bi, bj = base
-    bk = st.session_state.base_key
+    bk      = st.session_state.base_key
     bnombre = (
         st.session_state.bases_personalizadas[bk]["nombre"]
         if bk != "callao" else "Callao"
@@ -1080,7 +1055,6 @@ def _render_contenido_fase3() -> None:
     capa    = 0
     nav     = campo.navegable[capa]
 
-    # ── ¿Qué entra? ──────────────────────────────────────────────────────
     st.markdown("**¿Qué entra en esta fase?**")
     st.info(
         "▸ Campo de divergencia calculado en Fase 2  \n"
@@ -1088,7 +1062,6 @@ def _render_contenido_fase3() -> None:
         "▸ Componentes `uo`, `vo` superficiales para selección de centinelas"
     )
 
-    # ── Configurar zonas ─────────────────────────────────────────────────
     st.markdown("**Configurar zonas de misión**")
     with st.container(border=True):
         k_zonas = st.slider(
@@ -1110,18 +1083,16 @@ def _render_contenido_fase3() -> None:
         st.session_state.k_cent_f3   = k_cent
         st.session_state.dist_min_f3 = dist_min
 
-    # ── Base de la misión ─────────────────────────────────────────────────
     st.markdown("**Base de la misión**")
     st.caption("Punto de partida y retorno del AUV")
     _render_selector_base(campo)
 
-    # ── Botón calcular ────────────────────────────────────────────────────
     if st.session_state.fase_actual == 3:
         st.markdown("")
         if st.button("Seleccionar zonas", type="primary", key="btn_calcular_f3"):
             base_key = st.session_state.base_key
-            b_lat    = _LAT_CALLAO if base_key == "callao" else st.session_state.bases_personalizadas[base_key]["lat"]
-            b_lon    = _LON_CALLAO if base_key == "callao" else st.session_state.bases_personalizadas[base_key]["lon"]
+            b_lat = _LAT_CALLAO if base_key == "callao" else st.session_state.bases_personalizadas[base_key]["lat"]
+            b_lon = _LON_CALLAO if base_key == "callao" else st.session_state.bases_personalizadas[base_key]["lon"]
 
             with st.spinner("Seleccionando zonas…"):
                 uo   = campo.uo[capa]
@@ -1139,11 +1110,9 @@ def _render_contenido_fase3() -> None:
             st.session_state.base_idx   = todos.index(base_nodo)
             st.rerun()
 
-    # ── Resultado ─────────────────────────────────────────────────────────
     if st.session_state.wps is not None:
         _render_resultado_fase3(campo, div)
 
-    # ── Continuar ─────────────────────────────────────────────────────────
     if st.session_state.fase_actual == 3 and st.session_state.wps is not None:
         st.markdown("")
         if st.button(
@@ -1155,9 +1124,8 @@ def _render_contenido_fase3() -> None:
             st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# FASE 4 — Modelo energético y grafo
-# ---------------------------------------------------------------------------
+# ── Fase 4 — Modelo energético y grafo ───────────────────────────────────────
+
 def _drone_img_html() -> str:
     b64 = base64.b64encode(_SVG_AUV.encode()).decode()
     return (
@@ -1174,7 +1142,7 @@ def _drone_img_html() -> str:
 def _construir_grafo_cache(
     nc_path: str,
     s: float, eta: float, k_p: float, k_r: float, e_max: float, k_zonas: int,
-):
+) -> tuple:
     campo  = cargar_corrientes(nc_path)
     params = ParametrosModelo(s=s, eta=eta, k_p=k_p, k_r=k_r, e_max=e_max, k_zonas=k_zonas)
     return construir_grafo(campo, params), params
@@ -1276,7 +1244,6 @@ def _dialogo_drone(idx: int) -> None:
                 st.session_state.drone_key = len(st.session_state.drones) - 1
             else:
                 st.session_state.drones[idx] = nuevo
-            # invalidar grafo y resultado ATSP anteriores
             st.session_state.grafo        = None
             st.session_state.params_f4    = None
             st.session_state.hay_ciclo_f4 = None
@@ -1298,7 +1265,6 @@ def _render_tarjeta_drone(idx: int) -> None:
     e_kj  = drone["e_max"] / 1_000
 
     with st.container(border=True):
-        # ── Cabecera ──────────────────────────────────────────────────
         h1, h2 = st.columns([5, 1])
         with h1:
             st.markdown(f"**{drone['nombre']}**")
@@ -1306,7 +1272,6 @@ def _render_tarjeta_drone(idx: int) -> None:
             if selec:
                 st.markdown("*activo*")
 
-        # ── Parámetros + imagen ───────────────────────────────────────
         p_col, img_col = st.columns([3, 1])
         with p_col:
             st.markdown(
@@ -1320,7 +1285,6 @@ def _render_tarjeta_drone(idx: int) -> None:
         with img_col:
             st.markdown(_drone_img_html(), unsafe_allow_html=True)
 
-        # ── Botones de acción ─────────────────────────────────────────
         b1, b2, b3 = st.columns(3)
         with b1:
             lbl  = "Activo" if selec else "Seleccionar"
@@ -1368,7 +1332,6 @@ def _render_gestor_drones() -> None:
     """Grid de tarjetas 2 por fila con botón de agregar al final."""
     drones = st.session_state.drones
 
-    # Abrir diálogo si corresponde (debe estar en la parte superior del render)
     if st.session_state.abrir_drone_idx is not None:
         _dialogo_drone(st.session_state.abrir_drone_idx)
 
@@ -1387,12 +1350,11 @@ def _render_gestor_drones() -> None:
 
 
 def _render_contenido_fase4() -> None:
-    campo    = st.session_state.campo
-    nc_path  = st.session_state.nc_path
-    todos    = st.session_state.todos
+    campo     = st.session_state.campo
+    nc_path   = st.session_state.nc_path
+    todos     = st.session_state.todos
     base_nodo = st.session_state.base_nodo
 
-    # ── ¿Qué entra? ─────────────────────────────────────────────────────────
     st.markdown("**¿Qué entra en esta fase?**")
     n_nodos_potenciales = int(campo.navegable.sum()) if campo is not None else 0
     st.info(
@@ -1403,7 +1365,6 @@ def _render_contenido_fase4() -> None:
         f"▸ Parámetros del drone seleccionado"
     )
 
-    # ── ¿Qué se calcula? ────────────────────────────────────────────────────
     st.markdown("**¿Qué se calcula?**")
     with st.container(border=True):
         st.markdown(
@@ -1426,11 +1387,9 @@ def _render_contenido_fase4() -> None:
             "(≤ 0.5 m/s), se activa únicamente si configurás `v ≤ 0.4 m/s`."
         )
 
-    # ── Gestor de drones ────────────────────────────────────────────────────
     st.markdown("**Seleccioná el drone para la misión**")
     _render_gestor_drones()
 
-    # ── Botón construir grafo (solo cuando la fase está activa) ─────────────
     if st.session_state.fase_actual == 4:
         st.markdown("")
         drone_sel = st.session_state.drones[st.session_state.drone_key]
@@ -1460,7 +1419,6 @@ def _render_contenido_fase4() -> None:
             st.session_state.caminos_f5   = None
             st.rerun()
 
-    # ── Resultado ────────────────────────────────────────────────────────────
     if st.session_state.grafo is not None:
         grafo     = st.session_state.grafo
         params    = st.session_state.params_f4
@@ -1470,9 +1428,9 @@ def _render_contenido_fase4() -> None:
         st.markdown("**Resultado**")
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Nodos del grafo",    f"{grafo.num_nodos:,}")
-        col2.metric("Aristas dirigidas",  f"{grafo.num_aristas:,}")
-        col3.metric("Batería inicial",    f"{bat_ini / 1_000:.0f} kJ")
+        col1.metric("Nodos del grafo",   f"{grafo.num_nodos:,}")
+        col2.metric("Aristas dirigidas", f"{grafo.num_aristas:,}")
+        col3.metric("Batería inicial",   f"{bat_ini / 1_000:.0f} kJ")
         col4.metric(
             "Ciclo negativo",
             "Detectado" if hay_ciclo else "Ninguno",
@@ -1490,7 +1448,6 @@ def _render_contenido_fase4() -> None:
                 "Sin ciclos de energía negativa: el modelo es físicamente consistente."
             )
 
-    # ── Continuar ─────────────────────────────────────────────────────────────
     if (
         st.session_state.fase_actual == 4
         and st.session_state.grafo is not None
@@ -1506,9 +1463,8 @@ def _render_contenido_fase4() -> None:
             st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# FASE 5 — Optimización ATSP + Bellman-Ford
-# ---------------------------------------------------------------------------
+# ── Fase 5 — Optimización ATSP + Bellman-Ford ────────────────────────────────
+
 def _render_contenido_fase5() -> None:
     campo     = st.session_state.campo
     todos     = st.session_state.todos
@@ -1518,7 +1474,6 @@ def _render_contenido_fase5() -> None:
     base_idx  = st.session_state.base_idx
     grafo     = st.session_state.grafo
 
-    # ── ¿Qué entra? ─────────────────────────────────────────────────────────
     st.markdown("**¿Qué entra en esta fase?**")
     st.info(
         f"▸ Grafo energético de Fase 4 — "
@@ -1527,9 +1482,8 @@ def _render_contenido_fase5() -> None:
         f"({len(wps)} waypoints de convergencia, {len(cent)} centinelas y base)"
     )
 
-    # ── ¿Qué se calcula? ────────────────────────────────────────────────────
     st.markdown("**¿Qué se calcula?**")
-    n_zonas = len(todos)
+    n_zonas     = len(todos)
     n_factorial = math.factorial(n_zonas - 1)
     with st.container(border=True):
         st.markdown(
@@ -1547,11 +1501,9 @@ def _render_contenido_fase5() -> None:
             "secuencia completa de nodos: Base → … → Base."
         )
 
-    # ── Botón calcular (solo en fase activa) ────────────────────────────────
     if st.session_state.fase_actual == 5:
         st.markdown("")
-        if st.button("Calcular ruta óptima", type="primary",
-                     key="btn_calcular_f5"):
+        if st.button("Calcular ruta óptima", type="primary", key="btn_calcular_f5"):
             with st.spinner(
                 "Calculando matriz de costos energéticos "
                 f"({n_zonas} ejecuciones de Bellman-Ford)…"
@@ -1567,7 +1519,6 @@ def _render_contenido_fase5() -> None:
             st.session_state.ruta       = ruta
             st.rerun()
 
-    # ── Resultado ────────────────────────────────────────────────────────────
     if st.session_state.ruta is None:
         return
 
@@ -1576,7 +1527,6 @@ def _render_contenido_fase5() -> None:
     costo = st.session_state.costo_f5
     ruta  = st.session_state.ruta
 
-    # Etiquetas por tipo de zona
     etiquetas: dict = {}
     for nodo in todos:
         if nodo == base_nodo:
@@ -1589,14 +1539,12 @@ def _render_contenido_fase5() -> None:
             etiquetas[nodo] = f"Z{todos.index(nodo)}"
     etiq_lista = [etiquetas[nodo] for nodo in todos]
 
-    # Métricas
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Zonas de misión",   str(n_zonas))
     col2.metric("Órdenes evaluados", f"{math.factorial(n_zonas - 1):,}")
     col3.metric("Nodos en ruta",     f"{len(ruta):,}")
     col4.metric("Costo total",       f"{costo:.1f} J")
 
-    # Aviso si algún par es inalcanzable
     inalcanzables = [
         (i, j)
         for i in range(n_zonas)
@@ -1612,7 +1560,6 @@ def _render_contenido_fase5() -> None:
             f"{pares}. El tour óptimo puede ser infinito o subóptimo."
         )
 
-    # ── Visualizaciones en tabs ───────────────────────────────────────────
     tab_bf, tab_atsp = st.tabs([
         "Paso 1 · Grafo de costos BF",
         "Paso 2 · Búsqueda ATSP",
@@ -1639,9 +1586,7 @@ def _render_contenido_fase5() -> None:
             "Derecha: ciclo del tour óptimo con el costo de cada tramo [J]."
         )
 
-    # ── Matriz completa ───────────────────────────────────────────────────
     with st.expander("Matriz de costos completa [J]", expanded=False):
-        import pandas as pd
         df = pd.DataFrame(
             [
                 [
@@ -1657,7 +1602,6 @@ def _render_contenido_fase5() -> None:
         )
         st.dataframe(df, use_container_width=True)
 
-    # ── Ruta resumen ──────────────────────────────────────────────────────
     secuencia_str = "  →  ".join(etiq_lista[k] for k in orden)
     with st.container(border=True):
         st.markdown(f"**Ruta óptima:** {secuencia_str}")
@@ -1666,7 +1610,6 @@ def _render_contenido_fase5() -> None:
             f"`{len(ruta):,}` nodos en la secuencia completa"
         )
 
-    # ── Continuar ─────────────────────────────────────────────────────────
     if st.session_state.fase_actual == 5:
         st.markdown("")
         if st.button(
@@ -1678,9 +1621,8 @@ def _render_contenido_fase5() -> None:
             st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# FASE 6 — Resultados de la misión + Exportar
-# ---------------------------------------------------------------------------
+# ── Fase 6 — Resultados y exportación ────────────────────────────────────────
+
 def _render_contenido_fase6() -> None:
     campo     = st.session_state.campo
     ruta      = st.session_state.ruta
@@ -1695,7 +1637,6 @@ def _render_contenido_fase6() -> None:
     bat_ini   = st.session_state.bat_ini_j
     params    = st.session_state.params_f4
 
-    # ── ¿Qué entra? ──────────────────────────────────────────────────────────
     st.markdown("**¿Qué entra en esta fase?**")
     st.info(
         f"▸ Ruta completa calculada en Fase 5 — {len(ruta):,} nodos  \n"
@@ -1703,7 +1644,6 @@ def _render_contenido_fase6() -> None:
         f"▸ Parámetros del drone seleccionado"
     )
 
-    # ── Etiquetas de zonas ───────────────────────────────────────────────────
     etiquetas: dict = {}
     for nodo in todos:
         if nodo == base_nodo:
@@ -1716,24 +1656,21 @@ def _render_contenido_fase6() -> None:
             etiquetas[nodo] = f"Z{todos.index(nodo)}"
     etiq_lista = [etiquetas[nodo] for nodo in todos]
 
-    # ── Métricas de batería ──────────────────────────────────────────────────
-    bat = estado_bateria(ruta, grafo, params.e_max, bateria_inicial=bat_ini)
-    pct_min = bat["minimo"] / params.e_max * 100
+    bat     = estado_bateria(ruta, grafo, params.e_max, bateria_inicial=bat_ini)
+    pct_min = bat.minimo / params.e_max * 100
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Misión viable",       "Sí" if bat["viable"] else "No")
-    col2.metric("Energía consumida",   f"{bat['consumido']:.1f} J")
-    col3.metric("Energía regenerada",  f"{bat['regenerado']:.1f} J")
-    col4.metric("Batería mínima",      f"{pct_min:.1f} %")
+    col1.metric("Misión viable",      "Sí" if bat.viable else "No")
+    col2.metric("Energía consumida",  f"{bat.consumido:.1f} J")
+    col3.metric("Energía regenerada", f"{bat.regenerado:.1f} J")
+    col4.metric("Batería mínima",     f"{pct_min:.1f} %")
 
-    if not bat["viable"]:
+    if not bat.viable:
         st.error(
             "La batería llega a 0 en algún punto de la misión. "
             "Considerá aumentar la capacidad (e_max) o reducir la distancia entre zonas."
         )
 
-    # ── Tabla de tramos ──────────────────────────────────────────────────────
-    import pandas as pd
     tramos_j = [float(M[orden[k], orden[k + 1]]) for k in range(len(orden) - 1)]
     filas = [
         {
@@ -1748,7 +1685,6 @@ def _render_contenido_fase6() -> None:
     st.markdown("**Tramos de la misión**")
     st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
 
-    # ── Tabs de visualización ─────────────────────────────────────────────────
     tab_2d, tab_3d, tab_bat = st.tabs(["Ruta 2D", "Ruta 3D", "Batería"])
 
     with tab_2d:
@@ -1773,7 +1709,7 @@ def _render_contenido_fase6() -> None:
     with tab_bat:
         fig_bat, ax_bat = plt.subplots(figsize=(12, 4))
         plot_bateria(
-            campo, ruta, bat["niveles"], params.e_max,
+            campo, ruta, bat.niveles, params.e_max,
             waypoints=todos, orden=orden, ax=ax_bat,
         )
         st.pyplot(fig_bat, use_container_width=True)
@@ -1784,12 +1720,9 @@ def _render_contenido_fase6() -> None:
             "Zona roja = nivel crítico (<20 % de capacidad)."
         )
 
-    # ── Exportar CSV ──────────────────────────────────────────────────────────
     st.markdown("**Exportar ruta**")
-    import io as _io
-    import csv as _csv
-    buf = _io.StringIO()
-    writer = _csv.writer(buf)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
     writer.writerow(["paso", "prof_m", "lat_deg", "lon_deg"])
     for paso, (p, i, j) in enumerate(ruta):
         writer.writerow([
@@ -1810,9 +1743,7 @@ def _render_contenido_fase6() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Layout principal
-# ---------------------------------------------------------------------------
+# ── Layout principal ──────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Planificador AUV — Lima",
     page_icon=None,
